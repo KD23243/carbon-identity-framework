@@ -20,6 +20,7 @@ package org.wso2.carbon.idp.mgt;
 
 import org.wso2.carbon.identity.application.common.model.ClaimMapping;
 import org.wso2.carbon.identity.application.common.model.FederatedAuthenticatorConfig;
+import org.wso2.carbon.identity.application.common.model.IdPGroup;
 import org.wso2.carbon.identity.application.common.model.IdentityProvider;
 import org.wso2.carbon.identity.application.common.model.LocalRole;
 import org.wso2.carbon.identity.application.common.model.ProvisioningConnectorConfig;
@@ -28,6 +29,7 @@ import org.wso2.carbon.identity.core.model.ExpressionNode;
 import org.wso2.carbon.idp.mgt.model.ConnectedAppsResult;
 import org.wso2.carbon.idp.mgt.model.IdpSearchResult;
 
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -213,6 +215,19 @@ public interface IdpManager {
     default String getIdPNameByResourceId(String resourceId) throws IdentityProviderManagementException {
 
         return null;
+    }
+
+    /**
+     * Retrieves registered Identity provider names for a given tenant by Identity Provider Ids.
+     *
+     * @param tenantDomain Tenant domain.
+     * @param idpIds List of identity provider Ids.
+     * @return A map of identity provider names keyed by idp id.
+     */
+    default Map<String, String> getIdPNamesById(String tenantDomain, Set<String> idpIds)
+            throws IdentityProviderManagementException {
+
+        return Collections.emptyMap();
     }
 
     /**
@@ -493,6 +508,12 @@ public interface IdpManager {
         return null;
     }
 
+    default ConnectedAppsResult getConnectedAppsForLocalAuthenticator(String authenticatorId, int tenantId,
+                                                                      Integer limit, Integer offset)
+            throws IdentityProviderManagementException {
+
+        return null;
+    }
     /**
      * Retrieves the first matching IDP for the given metadata property.
      * Intended to ony be used to retrieve IDP based on a unique metadata property.
@@ -507,6 +528,20 @@ public interface IdpManager {
      */
     default IdentityProvider getIdPByMetadataProperty(String property, String value, String tenantDomain,
                                                       boolean ignoreFileBasedIdps)
+            throws IdentityProviderManagementException {
+
+        return null;
+    }
+
+    /**
+     * Get valid IDP groups by IDP group IDs.
+     *
+     * @param idpGroupIds  List of IDP group IDs.
+     * @param tenantDomain Tenant domain.
+     * @return List of valid IDP groups.
+     * @throws IdentityProviderManagementException If an error occurred while getting IDP Group data.
+     */
+    default List<IdPGroup> getValidIdPGroupsByIdPGroupIds(List<String> idpGroupIds, String tenantDomain)
             throws IdentityProviderManagementException {
 
         return null;

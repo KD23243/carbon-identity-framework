@@ -18,7 +18,6 @@
 
 package org.wso2.carbon.identity.core;
 
-import org.wso2.carbon.identity.core.internal.DefaultServiceURLBuilder;
 import org.wso2.carbon.identity.core.internal.IdentityCoreServiceComponent;
 
 /**
@@ -71,6 +70,16 @@ public interface ServiceURLBuilder {
      */
     ServiceURLBuilder addFragmentParameter(String key, String value);
 
+    /**
+     * Returns {@link ServiceURLBuilder} after setting skipCustomDomain flag
+     *
+     * @param skipDomainBranding          Tenant domain.
+     * @return  {@link ServiceURLBuilder}
+     */
+    default ServiceURLBuilder setSkipDomainBranding(boolean skipDomainBranding) {
+
+        return this;
+    }
 
     /**
      * Returns {@link ServiceURLBuilder} with tenant domain set for the context.
@@ -84,11 +93,50 @@ public interface ServiceURLBuilder {
     }
 
     /**
+     * This is an overload of method setTenant(String tenantDomain). This method has an additional param to mandate
+     * tenanted path appending for URLs.
+     *
+     * @param tenantDomain          Tenant domain.
+     * @param mandateTenantedPath   Mandate tenanted path appending for the URL.
+     * @return  {@link ServiceURLBuilder}
+     */
+    default ServiceURLBuilder setTenant(String tenantDomain, boolean mandateTenantedPath) {
+
+        return this;
+    }
+
+    /**
+     * Returns {@link ServiceURLBuilder} with organization id set for the context.
+     *
+     * @param orgId Organization id.
+     * @return {@link ServiceURLBuilder}.
+     */
+    default ServiceURLBuilder setOrganization(String orgId) {
+
+        return this;
+    }
+
+    /**
      * Returns a ServiceURL with the protocol, hostname, port, proxy context path, a web context
      * root and the tenant domain (appended if required).
      *
      * @return {@link ServiceURL}.
      * @throws URLBuilderException If error occurred while constructing the URL.
+     * @deprecated Use {@link #build(String)} instead.
      */
+    @Deprecated
     ServiceURL build() throws URLBuilderException;
+
+    /**
+     * Returns a ServiceURL with the protocol, hostname, port, proxy context path, a web context
+     * root and the tenant domain (appended if required).
+     *
+     * @param hostname Hostname.
+     * @return {@link ServiceURL}.
+     * @throws URLBuilderException If error occurred while constructing the URL.
+     */
+    default ServiceURL build(String hostname) throws URLBuilderException {
+
+        return build();
+    }
 }

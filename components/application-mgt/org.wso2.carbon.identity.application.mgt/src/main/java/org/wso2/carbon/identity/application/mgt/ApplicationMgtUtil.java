@@ -1,7 +1,7 @@
 /*
- * Copyright (c) 2014, WSO2 Inc. (http://www.wso2.org) All Rights Reserved.
+ * Copyright (c) 2014-2024, WSO2 LLC. (http://www.wso2.com).
  *
- * WSO2 Inc. licenses this file to you under the Apache License,
+ * WSO2 LLC. licenses this file to you under the Apache License,
  * Version 2.0 (the "License"); you may not use this file except
  * in compliance with the License.
  * You may obtain a copy of the License at
@@ -18,21 +18,27 @@
 
 package org.wso2.carbon.identity.application.mgt;
 
+import com.fasterxml.jackson.core.JsonGenerator;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.apache.commons.lang.ArrayUtils;
+import com.fasterxml.jackson.databind.SerializerProvider;
+import com.fasterxml.jackson.databind.module.SimpleModule;
+import com.fasterxml.jackson.databind.ser.std.StdSerializer;
+import com.google.gson.Gson;
+import com.google.gson.reflect.TypeToken;
 import org.apache.commons.lang.StringUtils;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
-import org.json.JSONArray;
 import org.json.JSONObject;
 import org.wso2.carbon.CarbonConstants;
 import org.wso2.carbon.base.MultitenantConstants;
 import org.wso2.carbon.base.ServerConfiguration;
 import org.wso2.carbon.context.CarbonContext;
 import org.wso2.carbon.context.PrivilegedCarbonContext;
-import org.wso2.carbon.context.RegistryType;
+import org.wso2.carbon.identity.application.common.IdentityApplicationManagementClientException;
 import org.wso2.carbon.identity.application.common.IdentityApplicationManagementException;
+import org.wso2.carbon.identity.application.common.IdentityApplicationManagementServerException;
+import org.wso2.carbon.identity.application.common.model.ApplicationBasicInfo;
 import org.wso2.carbon.identity.application.common.model.ApplicationPermission;
 import org.wso2.carbon.identity.application.common.model.InboundAuthenticationRequestConfig;
 import org.wso2.carbon.identity.application.common.model.PermissionsAndRoleConfig;
@@ -42,37 +48,47 @@ import org.wso2.carbon.identity.application.common.model.SpFileStream;
 import org.wso2.carbon.identity.application.common.model.User;
 import org.wso2.carbon.identity.application.mgt.dao.ApplicationDAO;
 import org.wso2.carbon.identity.application.mgt.internal.ApplicationManagementServiceComponentHolder;
+import org.wso2.carbon.identity.application.mgt.provider.RegistryBasedApplicationPermissionProvider;
 import org.wso2.carbon.identity.base.IdentityException;
+import org.wso2.carbon.identity.central.log.mgt.utils.LoggerUtils;
+import org.wso2.carbon.identity.core.ServiceURLBuilder;
+import org.wso2.carbon.identity.core.URLBuilderException;
 import org.wso2.carbon.identity.core.util.IdentityTenantUtil;
 import org.wso2.carbon.identity.core.util.IdentityUtil;
-import org.wso2.carbon.registry.api.Collection;
-import org.wso2.carbon.registry.api.Registry;
-import org.wso2.carbon.registry.api.RegistryException;
-import org.wso2.carbon.registry.api.Resource;
-import org.wso2.carbon.registry.core.RegistryConstants;
+import org.wso2.carbon.identity.organization.management.service.exception.OrganizationManagementException;
+import org.wso2.carbon.user.api.Tenant;
 import org.wso2.carbon.user.api.UserStoreException;
 import org.wso2.carbon.user.api.UserStoreManager;
 import org.wso2.carbon.user.core.UserCoreConstants;
-import org.wso2.carbon.user.core.UserRealm;
 import org.wso2.carbon.user.core.common.AbstractUserStoreManager;
 import org.wso2.carbon.user.core.util.UserCoreUtil;
-import org.wso2.carbon.user.mgt.UserMgtConstants;
+import org.wso2.carbon.utils.multitenancy.MultitenantUtils;
 
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
+import java.util.Optional;
 import java.util.regex.Pattern;
 
+import javax.xml.XMLConstants;
 import javax.xml.bind.JAXBContext;
 import javax.xml.bind.JAXBException;
 import javax.xml.bind.Unmarshaller;
 
+import static org.wso2.carbon.identity.application.mgt.ApplicationConstants.CONSOLE_ACCESS_ORIGIN;
+import static org.wso2.carbon.identity.application.mgt.ApplicationConstants.CONSOLE_ACCESS_URL_FROM_SERVER_CONFIGS;
 import static org.wso2.carbon.identity.application.mgt.ApplicationConstants.ENABLE_APPLICATION_ROLE_VALIDATION_PROPERTY;
+import static org.wso2.carbon.identity.application.mgt.ApplicationConstants.LogConstants.APP_OWNER;
+import static org.wso2.carbon.identity.application.mgt.ApplicationConstants.LogConstants.DISABLE_LEGACY_AUDIT_LOGS_IN_APP_MGT_CONFIG;
+import static org.wso2.carbon.identity.application.mgt.ApplicationConstants.LogConstants.ENABLE_V2_AUDIT_LOGS;
+import static org.wso2.carbon.identity.application.mgt.ApplicationConstants.MYACCOUNT_ACCESS_ORIGIN;
+import static org.wso2.carbon.identity.application.mgt.ApplicationConstants.MY_ACCOUNT_ACCESS_URL_FROM_SERVER_CONFIGS;
+import static org.wso2.carbon.identity.application.mgt.ApplicationConstants.TENANT_DOMAIN_PLACEHOLDER;
 import static org.wso2.carbon.user.core.constants.UserCoreErrorConstants.ErrorMessages.ERROR_CODE_ROLE_ALREADY_EXISTS;
+import static org.wso2.carbon.utils.CarbonUtils.isLegacyAuditLogsDisabled;
 
 /**
  * Few common utility functions related to Application (aka. Service Provider) Management.
@@ -80,7 +96,7 @@ import static org.wso2.carbon.user.core.constants.UserCoreErrorConstants.ErrorMe
 public class ApplicationMgtUtil {
 
     public static final String APPLICATION_ROOT_PERMISSION = "applications";
-    public static final String PATH_CONSTANT = RegistryConstants.PATH_SEPARATOR;
+    public static final String PATH_CONSTANT = "/";
     // Default regex for validating application name.
     // This regex allows alphanumeric characters, dot, underscore, hyphen and spaces in the name.
     // Does not allow leading and trailing whitespaces.
@@ -89,6 +105,9 @@ public class ApplicationMgtUtil {
     public static final String MASKING_CHARACTER = "*";
     public static final String MASKING_REGEX = "(?<!^.?).(?!.?$)";
     private static final int MAX_RETRY_ATTEMPTS = 3;
+    private static final String DOMAIN_QUALIFIED_REGISTRY_SYSTEM_USERNAME =
+            UserCoreConstants.PRIMARY_DEFAULT_DOMAIN_NAME + "/" + CarbonConstants.REGISTRY_SYSTEM_USERNAME;
+    private static final String BASE_URL_PLACEHOLDER = "<PROTOCOL>://<HOSTNAME>:<PORT>";
 
     private static Log log = LogFactory.getLog(ApplicationMgtUtil.class);
 
@@ -285,6 +304,55 @@ public class ApplicationMgtUtil {
         return isRoleAlreadyApplied;
     }
 
+    /**
+     * Filter the user authorized applications out of the list of applications.
+     *
+     * @param applicationBasicInfos The list of applications with the basic information.
+     * @param username              The name of the authenticated user.
+     * @return List of user authorized applications.
+     * @throws IdentityApplicationManagementException
+     */
+    public static List<ApplicationBasicInfo> filterAuthorizedApplicationBasicInfo(
+            ApplicationBasicInfo[] applicationBasicInfos, String username)
+            throws IdentityApplicationManagementException {
+
+        List<ApplicationBasicInfo> appInfo = new ArrayList<>();
+        UserStoreManager userStoreManager;
+        String[] userRoles = new String[0];
+        try {
+            userStoreManager = CarbonContext.getThreadLocalCarbonContext().getUserRealm().getUserStoreManager();
+            if (!(userStoreManager instanceof AbstractUserStoreManager)) {
+                userRoles = userStoreManager.getRoleListOfUser(username);
+            }
+        } catch (UserStoreException e) {
+            throw new IdentityApplicationManagementException("Error while retrieving the role list of the user: " +
+                    username, e);
+        }
+
+        for (ApplicationBasicInfo applicationBasicInfo : applicationBasicInfos) {
+            String applicationRoleName = getAppRoleName(applicationBasicInfo.getApplicationName());
+            if (log.isDebugEnabled()) {
+                log.debug("Checking the authorization for the user : " + username + " for application: "  +
+                        applicationBasicInfo.getApplicationName());
+            }
+            try {
+                if (userStoreManager instanceof AbstractUserStoreManager &&
+                        ((AbstractUserStoreManager) userStoreManager).isUserInRole(username, applicationRoleName) ||
+                        Arrays.asList(userRoles).contains(applicationRoleName)) {
+                    appInfo.add(applicationBasicInfo);
+                    if (log.isDebugEnabled()) {
+                        log.debug("Retrieving basic information of application: " +
+                                applicationBasicInfo.getApplicationName() + "username: " + username);
+                    }
+                }
+            } catch (UserStoreException e) {
+                throw new IdentityApplicationManagementException("Error while checking authorization for user: " +
+                        username + " for application: " + applicationBasicInfo.getApplicationName(), e);
+            }
+        }
+        return appInfo;
+    }
+
     private static String getAppRoleName(String applicationName) {
 
         return ApplicationConstants.APPLICATION_DOMAIN + UserCoreConstants.DOMAIN_SEPARATOR + applicationName;
@@ -366,27 +434,8 @@ public class ApplicationMgtUtil {
     public static void renameAppPermissionPathNode(String oldName, String newName)
             throws IdentityApplicationManagementException {
 
-        List<ApplicationPermission> loadPermissions = loadPermissions(oldName);
-        String newApplicationNode = ApplicationMgtUtil.getApplicationPermissionPath() + PATH_CONSTANT + oldName;
-        Registry tenantGovReg = CarbonContext.getThreadLocalCarbonContext().getRegistry(
-                RegistryType.USER_GOVERNANCE);
-        //creating new application node
-        try {
-            for (ApplicationPermission applicationPermission : loadPermissions) {
-                tenantGovReg.delete(newApplicationNode + PATH_CONSTANT + applicationPermission.getValue());
-            }
-            tenantGovReg.delete(newApplicationNode);
-            Collection permissionNode = tenantGovReg.newCollection();
-            permissionNode.setProperty("name", newName);
-            newApplicationNode = ApplicationMgtUtil.getApplicationPermissionPath() + PATH_CONSTANT + newName;
-            String applicationNode = newApplicationNode;
-            tenantGovReg.put(newApplicationNode, permissionNode);
-            addPermission(applicationNode, loadPermissions.toArray(new ApplicationPermission[loadPermissions.size()]),
-                    tenantGovReg);
-        } catch (RegistryException e) {
-            throw new IdentityApplicationManagementException("Error while renaming permission node "
-                    + oldName + "to " + newName, e);
-        }
+        ApplicationManagementServiceComponentHolder.getInstance().getApplicationPermissionProvider()
+                .renameAppPermissionName(oldName, newName);
     }
 
     /**
@@ -400,66 +449,18 @@ public class ApplicationMgtUtil {
                                         PermissionsAndRoleConfig permissionsConfig)
             throws IdentityApplicationManagementException {
 
-        int tenantId = MultitenantConstants.INVALID_TENANT_ID;
-        try {
-            tenantId = CarbonContext.getThreadLocalCarbonContext().getTenantId();
-            IdentityTenantUtil.initializeRegistry(tenantId);
-        } catch (IdentityException e) {
-            throw new IdentityApplicationManagementException("Error loading tenant registry for tenant domain: " +
-                    IdentityTenantUtil.getTenantDomain(tenantId), e);
+        /*
+         There can be places like migration client, where this method is called before initializing the
+         ApplicationMgtService from the OSGi environment. In such places, if we need to initialize the
+         ApplicationPermissionProvider, we need to check the provider and initialize a default one. In this case
+         the default provider is RegistryBasedApplicationPermissionProvider.
+        */
+        if (ApplicationManagementServiceComponentHolder.getInstance().getApplicationPermissionProvider() == null) {
+            ApplicationManagementServiceComponentHolder.getInstance()
+                    .setApplicationPermissionProvider(new RegistryBasedApplicationPermissionProvider());
         }
-        Registry tenantGovReg = CarbonContext.getThreadLocalCarbonContext().getRegistry(
-                RegistryType.USER_GOVERNANCE);
-
-        String permissionResourcePath = getApplicationPermissionPath();
-        try {
-            if (!tenantGovReg.resourceExists(permissionResourcePath)) {
-                boolean loggedInUserChanged = false;
-                UserRealm realm =
-                        (UserRealm) CarbonContext.getThreadLocalCarbonContext().getUserRealm();
-                if (!realm.getAuthorizationManager()
-                        .isUserAuthorized(username, permissionResourcePath,
-                                UserMgtConstants.EXECUTE_ACTION)) {
-                    //Logged in user is not authorized to create the permission.
-                    // Temporarily change the user to the admin for creating the permission
-                    PrivilegedCarbonContext.getThreadLocalCarbonContext().setUsername(
-                            realm.getRealmConfiguration().getAdminUserName());
-                    tenantGovReg = CarbonContext.getThreadLocalCarbonContext()
-                            .getRegistry(RegistryType.USER_GOVERNANCE);
-                    loggedInUserChanged = true;
-                }
-                Collection appRootNode = tenantGovReg.newCollection();
-                appRootNode.setProperty("name", "Applications");
-                tenantGovReg.put(permissionResourcePath, appRootNode);
-                if (loggedInUserChanged) {
-                    PrivilegedCarbonContext.getThreadLocalCarbonContext().setUsername(username);
-                }
-            }
-
-            if (permissionsConfig != null) {
-                ApplicationPermission[] permissions = permissionsConfig.getPermissions();
-                if (permissions == null || permissions.length < 1) {
-                    return;
-                }
-
-                // creating the application node in the tree
-                String appNode = permissionResourcePath + PATH_CONSTANT + applicationName;
-                Collection appNodeColl = tenantGovReg.newCollection();
-                tenantGovReg.put(appNode, appNodeColl);
-
-                // now start storing the permissions
-                for (ApplicationPermission permission : permissions) {
-                    String permissinPath = appNode + PATH_CONSTANT + permission;
-                    Resource permissionNode = tenantGovReg.newResource();
-                    permissionNode.setProperty("name", permission.getValue());
-                    tenantGovReg.put(permissinPath, permissionNode);
-                }
-            }
-
-        } catch (Exception e) {
-            throw new IdentityApplicationManagementException("Error while storing permissions for application " +
-                    applicationName, e);
-        }
+        ApplicationManagementServiceComponentHolder.getInstance().getApplicationPermissionProvider()
+                .storePermissions(applicationName, permissionsConfig);
     }
 
     /**
@@ -472,73 +473,8 @@ public class ApplicationMgtUtil {
     public static void updatePermissions(String applicationName, ApplicationPermission[] permissions)
             throws IdentityApplicationManagementException {
 
-        String applicationNode = getApplicationPermissionPath() + PATH_CONSTANT + applicationName;
-
-        Registry tenantGovReg = CarbonContext.getThreadLocalCarbonContext().getRegistry(
-                RegistryType.USER_GOVERNANCE);
-
-        try {
-
-            boolean exist = tenantGovReg.resourceExists(applicationNode);
-            if (!exist) {
-                Collection appRootNode = tenantGovReg.newCollection();
-                appRootNode.setProperty("name", applicationName);
-                tenantGovReg.put(applicationNode, appRootNode);
-            }
-
-            Collection appNodeCollec = (Collection) tenantGovReg.get(applicationNode);
-            String[] childern = appNodeCollec.getChildren();
-
-            // new permissions are null. deleting all permissions case
-            if ((childern != null && childern.length > 0)
-                    && (permissions == null || permissions.length == 0)) { // there are permissions
-                tenantGovReg.delete(applicationNode);
-            }
-
-            if (ArrayUtils.isEmpty(permissions)) {
-                return;
-            }
-
-            // no permission exist for the application, create new
-            if (childern == null || appNodeCollec.getChildCount() < 1) {
-
-                addPermission(applicationNode, permissions, tenantGovReg);
-
-            } else { // there are permission
-                List<ApplicationPermission> loadPermissions = loadPermissions(applicationName);
-                for (ApplicationPermission applicationPermission : loadPermissions) {
-                    tenantGovReg.delete(applicationNode + PATH_CONSTANT + applicationPermission.getValue());
-                }
-                addPermission(applicationNode, permissions, tenantGovReg);
-            }
-
-        } catch (RegistryException e) {
-            throw new IdentityApplicationManagementException("Error while storing permissions", e);
-        }
-
-    }
-
-    private static void addPermission(String applicationNode, ApplicationPermission[] permissions, Registry
-            tenantGovReg) throws RegistryException {
-
-        for (ApplicationPermission permission : permissions) {
-            String permissionValue = permission.getValue();
-
-            if ("/".equals(
-                    permissionValue.substring(0, 1))) {         //if permissions are starts with slash remove that
-                permissionValue = permissionValue.substring(1);
-            }
-            String[] splitedPermission = permissionValue.split("/");
-            String permissinPath = applicationNode + PATH_CONSTANT;
-
-            for (int i = 0; i < splitedPermission.length; i++) {
-                permissinPath = permissinPath + splitedPermission[i] + PATH_CONSTANT;
-                Collection permissionNode = tenantGovReg.newCollection();
-                permissionNode.setProperty("name", splitedPermission[i]);
-                tenantGovReg.put(permissinPath, permissionNode);
-            }
-
-        }
+        ApplicationManagementServiceComponentHolder.getInstance().getApplicationPermissionProvider()
+                .updatePermissions(applicationName, permissions);
     }
 
     /**
@@ -551,72 +487,8 @@ public class ApplicationMgtUtil {
     public static List<ApplicationPermission> loadPermissions(String applicationName)
             throws IdentityApplicationManagementException {
 
-        String applicationNode = getApplicationPermissionPath() + PATH_CONSTANT + applicationName;
-        Registry tenantGovReg = CarbonContext.getThreadLocalCarbonContext().getRegistry(
-                RegistryType.USER_GOVERNANCE);
-        List<String> paths = new ArrayList<>();
-
-        try {
-            boolean exist = tenantGovReg.resourceExists(applicationNode);
-
-            if (!exist) {
-                return Collections.emptyList();
-            }
-
-            boolean loggedInUserChanged = false;
-            String loggedInUser = CarbonContext.getThreadLocalCarbonContext().getUsername();
-
-            UserRealm realm = (UserRealm) CarbonContext.getThreadLocalCarbonContext().getUserRealm();
-            if (loggedInUser == null || !realm.getAuthorizationManager().isUserAuthorized(
-                    loggedInUser, applicationNode, UserMgtConstants.EXECUTE_ACTION)) {
-                //Logged in user is not authorized to read the permission.
-                // Temporarily change the user to the admin for reading the permission
-                PrivilegedCarbonContext.getThreadLocalCarbonContext().setUsername(
-                        realm.getRealmConfiguration().getAdminUserName());
-                tenantGovReg = CarbonContext.getThreadLocalCarbonContext()
-                        .getRegistry(RegistryType.USER_GOVERNANCE);
-                loggedInUserChanged = true;
-            }
-
-            paths.clear();             //clear current paths
-            List<ApplicationPermission> permissions = new ArrayList<ApplicationPermission>();
-
-            permissionPath(tenantGovReg, applicationNode, paths, applicationNode);      //get permission paths
-            // recursively
-
-            for (String permissionPath : paths) {
-                ApplicationPermission permission;
-                permission = new ApplicationPermission();
-                permission.setValue(permissionPath);
-                permissions.add(permission);
-            }
-
-            if (loggedInUserChanged) {
-                PrivilegedCarbonContext.getThreadLocalCarbonContext().setUsername(loggedInUser);
-            }
-
-            return permissions;
-
-        } catch (RegistryException | org.wso2.carbon.user.core.UserStoreException e) {
-            throw new IdentityApplicationManagementException("Error while reading permissions", e);
-        }
-    }
-
-    private static void permissionPath(Registry tenantGovReg, String permissionPath, List<String> paths, String
-            applicationNode) throws RegistryException {
-
-        Collection appCollection = (Collection) tenantGovReg.get(permissionPath);
-        String[] children = appCollection.getChildren();
-
-        if ((children == null || children.length == 0) && !Objects.equals(permissionPath, applicationNode)) {
-            paths.add(permissionPath.replace(applicationNode, "").substring(2));
-        }
-
-        if (children != null && children.length != 0) {
-            for (String child : children) {
-                permissionPath(tenantGovReg, child, paths, applicationNode);
-            }
-        }
+        return ApplicationManagementServiceComponentHolder.getInstance().getApplicationPermissionProvider()
+                .loadPermissions(applicationName);
     }
 
     /**
@@ -627,45 +499,8 @@ public class ApplicationMgtUtil {
      */
     public static void deletePermissions(String applicationName) throws IdentityApplicationManagementException {
 
-        String applicationNode = getApplicationPermissionPath() + PATH_CONSTANT + applicationName;
-        Registry tenantGovReg = CarbonContext.getThreadLocalCarbonContext().getRegistry(
-                RegistryType.USER_GOVERNANCE);
-        try {
-            boolean exist = tenantGovReg.resourceExists(applicationNode);
-            if (!exist) {
-                return;
-            }
-            tenantGovReg.delete(applicationNode);
-        } catch (Exception e) {
-            /*
-             * For more information read https://github.com/wso2/product-is/issues/12579. This is to overcome the
-             * above issue.
-             */
-            log.error(String.format("Error occurred while trying to delete permissions for application: %s. Retrying " +
-                    "again", applicationName), e);
-            boolean isOperationFailed = true;
-            for (int attempt = 1; attempt <= MAX_RETRY_ATTEMPTS; attempt++) {
-                try {
-                    Thread.sleep(1000);
-                    boolean exist = tenantGovReg.resourceExists(applicationNode);
-                    if (!exist) {
-                        return;
-                    }
-                    tenantGovReg.delete(applicationNode);
-                    isOperationFailed = false;
-                    log.info(String.format("Permissions deleted application: %s in the retry attempt: %s",
-                            applicationName, attempt));
-                    break;
-                } catch (Exception exception) {
-                    log.error(String.format("Retry attempt: %s failed to delete permission for application: %s",
-                            attempt, applicationName), exception);
-                }
-            }
-            if (isOperationFailed) {
-                throw new IdentityApplicationManagementException("Error while deleting permissions for application: " +
-                        applicationName, e);
-            }
-        }
+        ApplicationManagementServiceComponentHolder.getInstance().getApplicationPermissionProvider()
+                .deletePermissions(applicationName);
     }
 
     /**
@@ -685,7 +520,7 @@ public class ApplicationMgtUtil {
 
     public static String getApplicationPermissionPath() {
 
-        return CarbonConstants.UI_PERMISSION_NAME + RegistryConstants.PATH_SEPARATOR + APPLICATION_ROOT_PERMISSION;
+        return CarbonConstants.UI_PERMISSION_NAME + PATH_CONSTANT + APPLICATION_ROOT_PERMISSION;
 
     }
 
@@ -775,22 +610,28 @@ public class ApplicationMgtUtil {
                 String userStoreDomain = serviceProvider.getOwner().getUserStoreDomain();
                 userNameWithDomain = IdentityUtil.addDomainToName(userName, userStoreDomain);
 
-                org.wso2.carbon.user.api.UserRealm realm = CarbonContext.getThreadLocalCarbonContext().getUserRealm();
-                if (realm == null || StringUtils.isEmpty(userNameWithDomain)) {
-                    return false;
-                }
-                boolean isUserExist = realm.getUserStoreManager().isExistingUser(userNameWithDomain);
-                if (!isUserExist) {
+                String tenantDomain = CarbonContext.getThreadLocalCarbonContext().getTenantDomain();
+                Optional<User> user = getUser(tenantDomain, userNameWithDomain);
+                if (user.isPresent()) {
+                    return true;
+                } else {
+                    org.wso2.carbon.user.api.UserRealm realm = CarbonContext.getThreadLocalCarbonContext()
+                            .getUserRealm();
+                    if (realm == null) {
+                        return false;
+                    }
+
                     if (log.isDebugEnabled()) {
                         log.debug("Owner does not exist for application: " + serviceProvider.getApplicationName() +
                                 ". Hence making the tenant admin the owner of the application.");
                     }
                     // Since the SP owner does not exist, set the tenant admin user as the owner.
                     User owner = new User();
-                    owner.setUserName(realm.getRealmConfiguration().getAdminUserName());
+                    String adminUserName = realm.getRealmConfiguration().getAdminUserName();
+                    owner.setUserName(adminUserName);
                     owner.setUserStoreDomain(realm.getRealmConfiguration().
                             getUserStoreProperty(UserCoreConstants.RealmConfig.PROPERTY_DOMAIN_NAME));
-                    owner.setTenantDomain(CarbonContext.getThreadLocalCarbonContext().getTenantDomain());
+                    owner.setTenantDomain(getUserTenantDomain(tenantDomain, adminUserName));
                     serviceProvider.setOwner(owner);
                 }
             } else {
@@ -818,12 +659,184 @@ public class ApplicationMgtUtil {
         try {
             JAXBContext jaxbContext = JAXBContext.newInstance(ServiceProvider.class);
             Unmarshaller unmarshaller = jaxbContext.createUnmarshaller();
+            // Disable external entity processing to prevent XXE attacks.
+            unmarshaller.setProperty(XMLConstants.ACCESS_EXTERNAL_DTD, "");
+            unmarshaller.setProperty(XMLConstants.ACCESS_EXTERNAL_SCHEMA, "");
             return (ServiceProvider) unmarshaller.unmarshal(spFileStream.getFileStream());
 
         } catch (JAXBException e) {
             throw new IdentityApplicationManagementException(String.format("Error in reading Service Provider " +
                     "configuration file %s uploaded by tenant: %s", spFileStream.getFileName(), tenantDomain), e);
+        } catch (Exception e) {
+            // Catch any other unexpected exceptions for proper error handling
+            throw new IdentityApplicationManagementException(String.format("Unexpected error in reading Service " +
+                    "Provider configuration file %s uploaded by tenant: %s", spFileStream.getFileName(), tenantDomain),
+                    e);
         }
+    }
+
+    /**
+     * Resolve user.
+     *
+     * @param tenantDomain The tenant domain which user is trying to access.
+     * @param username     The username of resolving user.
+     * @return User object.
+     * @throws IdentityApplicationManagementException Error when user cannot be resolved.
+     */
+    public static Optional<User> getUser(String tenantDomain, String username)
+            throws IdentityApplicationManagementException {
+
+        User user = null;
+        String userId = null;
+        try {
+            int tenantID = IdentityTenantUtil.getTenantId(tenantDomain);
+            if (StringUtils.isBlank(username)) {
+                userId = PrivilegedCarbonContext.getThreadLocalCarbonContext().getUserId();
+            }
+            if (tenantID == MultitenantConstants.SUPER_TENANT_ID) {
+                user = getUserFromTenant(username, userId, tenantID);
+            } else {
+                Tenant tenant = ApplicationManagementServiceComponentHolder.getInstance().getRealmService()
+                        .getTenantManager().getTenant(tenantID);
+                String accessedOrganizationId = tenant.getAssociatedOrganizationUUID();
+                if (accessedOrganizationId == null) {
+                    user = getUserFromTenant(username, userId, tenantID);
+                } else {
+                    Optional<org.wso2.carbon.user.core.common.User> resolvedUser =
+                            ApplicationManagementServiceComponentHolder.getInstance()
+                                    .getOrganizationUserResidentResolverService()
+                                    .resolveUserFromResidentOrganization(username, userId, accessedOrganizationId);
+                    if (resolvedUser.isPresent()) {
+                        user = new User(resolvedUser.get());
+                    }
+                }
+            }
+        } catch (UserStoreException | OrganizationManagementException e) {
+            throw new IdentityApplicationManagementException("Error resolving user.", e);
+        }
+        return Optional.ofNullable(user);
+    }
+
+    /**
+     * Get user from tenant by username or user id.
+     *
+     * @param username The username.
+     * @param userId   The user id.
+     * @param tenantId The tenant id where user resides.
+     * @return User object from tenant userStoreManager.
+     * @throws IdentityApplicationManagementException Error when user cannot be resolved.
+     */
+    private static User getUserFromTenant(String username, String userId, int tenantId)
+            throws IdentityApplicationManagementException {
+
+        User user = null;
+        try {
+            AbstractUserStoreManager userStoreManager =
+                    (AbstractUserStoreManager) ApplicationManagementServiceComponentHolder.getInstance()
+                            .getRealmService().getTenantUserRealm(tenantId).getUserStoreManager();
+            if (username != null) {
+                if (userStoreManager.isExistingUser(username)) {
+                    user = new User(userStoreManager.getUser(null, username));
+                } else if (userStoreManager.isExistingUserWithID(username)) {
+                    /*
+                    For federated admin user flow, sometimes their user id will be sent to federated tenant as name.
+                    Thus need to fetch user details using username as user id from their original
+                    tenant's user-store manager.
+                    */
+                    user = new User(userStoreManager.getUser(username, null));
+                }
+            } else if (userId != null && userStoreManager.isExistingUserWithID(userId)) {
+                user = new User(userStoreManager.getUser(userId, null));
+            }
+        } catch (UserStoreException e) {
+            throw new IdentityApplicationManagementException("Error finding user in tenant.", e);
+        }
+        return user;
+    }
+
+    /**
+     * Get user's tenant domain.
+     *
+     * @param tenantDomain The tenant domain which user is trying to access.
+     *                     This is the same tenant that application resides.
+     * @param username     The username of the user.
+     * @return The tenant domain where the user resides.
+     * @throws IdentityApplicationManagementException Error when user cannot be resolved.
+     */
+    public static String getUserTenantDomain(String tenantDomain, String username)
+            throws IdentityApplicationManagementException {
+
+        try {
+            if (useApplicationTenantDomainAsUserTenantDomain(tenantDomain, username)) {
+                return tenantDomain;
+            }
+            /*
+             Else situation occur when the application creator is deleted. At that point,
+             set the tenant domain of the application as the user's tenant domain.
+             */
+            return getUser(tenantDomain, username).map(User::getTenantDomain).orElse(tenantDomain);
+        } catch (UserStoreException e) {
+            throw new IdentityApplicationManagementException("Error while retrieving tenant.", e);
+        }
+    }
+
+    private static boolean useApplicationTenantDomainAsUserTenantDomain(String tenantDomain, String username)
+            throws UserStoreException {
+
+        if (MultitenantConstants.SUPER_TENANT_DOMAIN_NAME.equals(tenantDomain) ||
+                DOMAIN_QUALIFIED_REGISTRY_SYSTEM_USERNAME.equals(username) ||
+                !ApplicationManagementServiceComponentHolder.getInstance().isOrganizationManagementEnabled()) {
+            return true;
+        }
+        /*
+        If the tenant doesn't have an associated organization, return the application tenant
+        as the user's tenant domain.
+         */
+        int tenantID = IdentityTenantUtil.getTenantId(tenantDomain);
+        Tenant tenant = ApplicationManagementServiceComponentHolder.getInstance().getRealmService()
+                .getTenantManager().getTenant(tenantID);
+        String accessedOrganizationId = tenant.getAssociatedOrganizationUUID();
+        return StringUtils.isEmpty(accessedOrganizationId);
+    }
+
+    /**
+     * Get user's username.
+     *
+     * @param tenantDomain The tenant domain which user is trying to access.
+     * @return username  The username.
+     * @throws IdentityApplicationManagementException Error when user cannot be resolved.
+     */
+    public static String getUsername(String tenantDomain) throws IdentityApplicationManagementException {
+
+        String username = CarbonContext.getThreadLocalCarbonContext().getUsername();
+        if (username == null) {
+            Optional<User> maybeUser = getUser(tenantDomain, null);
+            User user = maybeUser
+                    .orElseThrow(() -> new IdentityApplicationManagementException("Error resolving user."));
+            username = IdentityUtil.addDomainToName(user.getUserName(), user.getUserStoreDomain());
+        }
+        return username;
+    }
+
+    /**
+     * Get username with user's tenant domain appended.
+     *
+     * @param tenantDomain The tenant domain which user is trying to access.
+     * @return The username with tenant domain.
+     * @throws IdentityApplicationManagementException Error when user cannot be resolved.
+     */
+    public static String getUsernameWithUserTenantDomain(String tenantDomain)
+            throws IdentityApplicationManagementException {
+
+        String username = CarbonContext.getThreadLocalCarbonContext().getUsername();
+        if (username == null) {
+            Optional<User> maybeUser = getUser(tenantDomain, null);
+            User user = maybeUser
+                    .orElseThrow(() -> new IdentityApplicationManagementException("Error resolving user."));
+            username = UserCoreUtil.addTenantDomainToEntry(IdentityUtil.addDomainToName(user.getUserName(),
+                    user.getUserStoreDomain()), user.getTenantDomain());
+        }
+        return UserCoreUtil.addTenantDomainToEntry(username, tenantDomain);
     }
 
     public static void startTenantFlow(String tenantDomain, String userName)
@@ -835,16 +848,29 @@ public class ApplicationMgtUtil {
 
     public static void startTenantFlow(String tenantDomain) throws IdentityApplicationManagementException {
 
-        int tenantId;
-        try {
-            tenantId = ApplicationManagementServiceComponentHolder.getInstance().getRealmService()
-                    .getTenantManager().getTenantId(tenantDomain);
-        } catch (UserStoreException e) {
-            throw new IdentityApplicationManagementException("Error when setting tenant domain. ", e);
-        }
+        String userId = PrivilegedCarbonContext.getThreadLocalCarbonContext().getUserId();
+        int tenantId = IdentityTenantUtil.getTenantId(tenantDomain);
         PrivilegedCarbonContext.startTenantFlow();
         PrivilegedCarbonContext.getThreadLocalCarbonContext().setTenantDomain(tenantDomain);
         PrivilegedCarbonContext.getThreadLocalCarbonContext().setTenantId(tenantId);
+        PrivilegedCarbonContext.getThreadLocalCarbonContext().setUserId(userId);
+    }
+
+    /**
+     * Method to verify if the tenant is active before accessing.
+     *
+     * @param tenantDomain The tenant domain which is trying to access.
+     * @throws IdentityApplicationManagementException Error when tenant is deactivated.
+     */
+    public static void validateTenant(String tenantDomain) throws IdentityApplicationManagementException {
+
+        if (StringUtils.isEmpty(tenantDomain)) {
+            return;
+        }
+        int tenantId = IdentityTenantUtil.getTenantId(tenantDomain);
+        if (MultitenantConstants.SUPER_TENANT_ID != tenantId && !IdentityTenantUtil.getTenant(tenantId).isActive()) {
+            throw new IdentityApplicationManagementClientException("Tenant " + tenantDomain + " is deactivated.");
+        }
     }
 
     public static void endTenantFlow() {
@@ -913,21 +939,13 @@ public class ApplicationMgtUtil {
      * @param userName     Username of the initiator.
      * @param tenantDomain Tenant domain of the initiator.
      * @return User id of the initiator.
+     * @deprecated
+     * This method is moved to IdentityUtil class as this will be used from other components as well.
      */
+    @Deprecated
     public static String getInitiatorId(String userName, String tenantDomain) {
 
-        String userId = PrivilegedCarbonContext.getThreadLocalCarbonContext().getUserId();
-        if (userId == null) {
-            String userStoreDomain = UserCoreUtil.extractDomainFromName(userName);
-            String username = UserCoreUtil.removeDomainFromName(userName);
-            int tenantId = IdentityTenantUtil.getTenantId(tenantDomain);
-            try {
-                userId = IdentityUtil.resolveUserIdFromUsername(tenantId, userStoreDomain, username);
-            } catch (IdentityException e) {
-               log.error("Error occurred while resolving Id for the user: " + username);
-            }
-        }
-        return userId;
+        return IdentityUtil.getInitiatorId(userName, tenantDomain);
     }
 
     /**
@@ -936,44 +954,264 @@ public class ApplicationMgtUtil {
      * @param serviceProvider Service provider object.
      * @return JSON string of the service provider object.
      */
-    public static String buildSPData(ServiceProvider serviceProvider) {
+    public static Map<String, Object> buildSPData(ServiceProvider serviceProvider) {
+
+        if (serviceProvider == null) {
+            return new HashMap<>();
+        }
+
+        String sp = maskSPData(serviceProvider);
+        Gson gson = new Gson();
+        return gson.fromJson(sp, new TypeToken<Map<String, Object>>() {
+        }.getType());
+    }
+
+    /**
+     * Build the service provider string object masking the sensitive information.
+     *
+     * @param serviceProvider Service provider object.
+     * @return JSON string of the service provider object.
+     */
+    private static String maskSPData(ServiceProvider serviceProvider) {
 
         if (serviceProvider == null) {
             return StringUtils.EMPTY;
         }
+        ObjectMapper mapper = new ObjectMapper();
+        SimpleModule module = new SimpleModule();
+        module.addSerializer(InboundAuthenticationRequestConfig.class, new InboundAuthRequestConfigSerializer());
+        mapper.registerModule(module);
         try {
             JSONObject serviceProviderJSONObject =
-                    new JSONObject(new ObjectMapper().writeValueAsString(serviceProvider));
-            JSONObject inboundAuthenticationConfig =
-                    serviceProviderJSONObject.optJSONObject("inboundAuthenticationConfig");
-            if (inboundAuthenticationConfig != null) {
-                JSONArray inboundAuthenticationRequestConfigsArray =
-                        inboundAuthenticationConfig.optJSONArray("inboundAuthenticationRequestConfigs");
-                if (inboundAuthenticationRequestConfigsArray != null) {
-                    for (int i = 0; i < inboundAuthenticationRequestConfigsArray.length(); i++) {
-                        JSONObject requestConfig = inboundAuthenticationRequestConfigsArray.getJSONObject(i);
-                        JSONArray properties = requestConfig.optJSONArray("properties");
-                        if (properties != null) {
-                            for (int j = 0; j < properties.length(); j++) {
-                                JSONObject property = properties.optJSONObject(j);
-                                if (property != null && StringUtils.equalsIgnoreCase("oauthConsumerSecret",
-                                        (String) property.get("name"))) {
-                                    if (property.get("value") != null) {
-                                        String secret = property.get("value").toString();
-                                        String maskedSecret = secret.replaceAll(MASKING_REGEX, MASKING_CHARACTER);
-                                        property.put("value", maskedSecret);
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
+                    new JSONObject(mapper.writeValueAsString(serviceProvider));
+            maskAppOwnerUsername(serviceProviderJSONObject.optJSONObject(APP_OWNER));
             return serviceProviderJSONObject.toString();
-        } catch (JsonProcessingException e) {
+        } catch (JsonProcessingException | IdentityException e) {
             log.error("Error while converting service provider object to json.");
         }
         return StringUtils.EMPTY;
     }
+    
+    /**
+     * Check whether the v2 audit logs are enabled.
+     *
+     * @return true if v2 audit logs are enabled.
+     */
+    public static boolean isEnableV2AuditLogs() {
+        
+        return Boolean.parseBoolean(System.getProperty(ENABLE_V2_AUDIT_LOGS));
+    }
+    
+    /**
+     * Handle the exception and throw the relevant ApplicationManagementException.
+     *
+     * @param msg Error message.
+     * @param e   Throwable object.
+     * @return IdentityApplicationManagementException.
+     */
+    public static IdentityApplicationManagementException handleException(String msg, Throwable e) {
+        
+        if (e instanceof IdentityApplicationManagementClientException) {
+            return new IdentityApplicationManagementClientException(e.getMessage(), e);
+        } else if (e instanceof IdentityApplicationManagementServerException) {
+            return new IdentityApplicationManagementServerException(e.getMessage(), e);
+        } else {
+            return new IdentityApplicationManagementException(msg, e);
+        }
+    }
 
+    private static void maskAppOwnerUsername(JSONObject appOwner) throws IdentityException {
+
+        if (!LoggerUtils.isLogMaskingEnable) {
+            return;
+        }
+        if (appOwner == null) {
+            return;
+        }
+        String loggableUserId = getLoggableUserId(appOwner);
+        if (StringUtils.isNotBlank(loggableUserId)) {
+            appOwner.put("loggableUserId", loggableUserId);
+        }
+        String username = (String) appOwner.get("userName");
+        if (StringUtils.isNotBlank(username)) {
+            appOwner.put("userName", LoggerUtils.getMaskedContent(username));
+        }
+    }
+
+    private static String getLoggableUserId(JSONObject appOwner) throws IdentityException {
+
+        String loggableUserId = (String) appOwner.get("loggableUserId");
+        String tenantDomain = (String) appOwner.get("tenantDomain");
+        String userStoreDomain = (String) appOwner.get("userStoreDomain");
+        if (StringUtils.isBlank(tenantDomain) && StringUtils.isBlank(loggableUserId)) {
+            return StringUtils.EMPTY;
+        }
+        int tenantId = IdentityTenantUtil.getTenantId(tenantDomain);
+        String userId = IdentityUtil.resolveUserIdFromUsername(tenantId, userStoreDomain,
+                MultitenantUtils.getTenantAwareUsername(loggableUserId));
+        if (StringUtils.isNotBlank(userId)) {
+            return userId;
+        }
+        // If userId is not found, return the masked value of tenant qualified username for logging purpose.
+        return LoggerUtils.getMaskedContent(loggableUserId);
+    }
+
+    @Deprecated
+    public static boolean isLegacyAuditLogsDisabledInAppMgt() {
+
+        return Boolean.parseBoolean(System.getProperty(DISABLE_LEGACY_AUDIT_LOGS_IN_APP_MGT_CONFIG))
+                || isLegacyAuditLogsDisabled();
+    }
+
+    /**
+     * This method use to replace the hostname and port with placeholders of URLs.
+     *
+     * @param absoluteUrl     The absolute URL which need to be modified.
+     * @return The URL which origin replaced placeholders.
+     * @throws URLBuilderException If any error occurs when building absolute public url without path.
+     */
+    public static String replaceUrlOriginWithPlaceholders(String absoluteUrl) throws URLBuilderException {
+
+        String basePath = ServiceURLBuilder.create().build().getAbsolutePublicUrlWithoutPath();
+        return StringUtils.replace(absoluteUrl, basePath, BASE_URL_PLACEHOLDER);
+    }
+
+    /**
+     * This method use to replace placeholders with the hostname and port of URLs.
+     *
+     * @param absoluteUrl     The URL which need to resolve from placeholders.
+     * @return The resolved URL from placeholders.
+     * @throws URLBuilderException If any error occurs when building absolute public url without path.
+     * @deprecated use {@link #resolveOriginUrlFromPlaceholders(String, String)}
+     */
+    @Deprecated
+    public static String resolveOriginUrlFromPlaceholders(String absoluteUrl) throws URLBuilderException {
+
+        String basePath = ServiceURLBuilder.create().build().getAbsolutePublicUrlWithoutPath();
+        return StringUtils.replace(absoluteUrl, BASE_URL_PLACEHOLDER, basePath);
+    }
+
+    /**
+     * This method use to replace placeholders with the hostname and port of URLs for the portal apps.
+     *
+     * @param absoluteUrl     The URL which need to resolve from placeholders.
+     * @return The resolved URL from placeholders.
+     * @throws URLBuilderException If any error occurs when building absolute public url without path.
+     */
+    public static String resolveOriginUrlFromPlaceholders(String absoluteUrl, String appName)
+            throws URLBuilderException {
+
+        if (StringUtils.isEmpty(appName)) {
+            return resolveOriginUrlFromPlaceholders(absoluteUrl);
+        }
+        String basePath = StringUtils.EMPTY;
+        if (ApplicationConstants.CONSOLE_APPLICATION_NAME.equals(appName)) {
+            basePath = IdentityUtil.getProperty(CONSOLE_ACCESS_ORIGIN);
+        } else if (ApplicationConstants.MY_ACCOUNT_APPLICATION_NAME.equals(appName)) {
+            basePath = IdentityUtil.getProperty(MYACCOUNT_ACCESS_ORIGIN);
+        }
+
+        if (StringUtils.isEmpty(basePath)) {
+            return resolveOriginUrlFromPlaceholders(absoluteUrl);
+        }
+        return StringUtils.replace(absoluteUrl, BASE_URL_PLACEHOLDER, basePath);
+    }
+
+    /**
+     * Check whether the application is Console or My Account by app name.
+     *
+     * @param name Application name.
+     * @return True if the application is Console or My Account.
+     */
+    public static boolean isConsoleOrMyAccount(String name) {
+
+        return isConsole(name) || isMyAccount(name);
+    }
+
+    /**
+     * Check whether the application is Console by app name.
+     *
+     * @param name Application name.
+     * @return True if the application is Console.
+     */
+    public static boolean isConsole(String name) {
+
+        return ApplicationConstants.CONSOLE_APPLICATION_NAME.equals(name);
+    }
+
+    /**
+     * Check whether the application is My Account by app name.
+     *
+     * @param name Application name.
+     * @return True if the application is My Account.
+     */
+    public static boolean isMyAccount(String name) {
+
+        return ApplicationConstants.MY_ACCOUNT_APPLICATION_NAME.equals(name);
+    }
+
+    /**
+     * Resolve Console application access url for a specific tenant based on the access url configured in toml.
+     *
+     * @param tenantDomain Tenant domain.
+     * @return Console access url.
+     */
+    public static String getConsoleAccessUrlFromServerConfig(String tenantDomain) {
+
+        String accessUrl = IdentityUtil.getProperty(CONSOLE_ACCESS_URL_FROM_SERVER_CONFIGS);
+        if (StringUtils.isNotBlank(accessUrl)) {
+            if (MultitenantConstants.SUPER_TENANT_DOMAIN_NAME.equals(tenantDomain) &&
+                    !IdentityTenantUtil.isSuperTenantRequiredInUrl()) {
+                accessUrl = accessUrl.replace("/t/" + TENANT_DOMAIN_PLACEHOLDER, StringUtils.EMPTY);
+            } else {
+                accessUrl = accessUrl.replace(TENANT_DOMAIN_PLACEHOLDER, tenantDomain);
+            }
+            return accessUrl;
+        }
+        return null;
+    }
+
+    /**
+     * Resolve MyAccount application access url for a specific tenant based on the access url configured in toml.
+     *
+     * @param tenantDomain Tenant domain.
+     * @return MyAccount access url.
+     */
+    public static String getMyAccountAccessUrlFromServerConfig(String tenantDomain) {
+
+        String accessUrl = IdentityUtil.getProperty(MY_ACCOUNT_ACCESS_URL_FROM_SERVER_CONFIGS);
+        if (StringUtils.isNotBlank(accessUrl)) {
+            if (MultitenantConstants.SUPER_TENANT_DOMAIN_NAME.equals(tenantDomain) &&
+                    !IdentityTenantUtil.isSuperTenantRequiredInUrl()) {
+                accessUrl = accessUrl.replace("/t/" + TENANT_DOMAIN_PLACEHOLDER, StringUtils.EMPTY);
+            } else {
+                accessUrl = accessUrl.replace(TENANT_DOMAIN_PLACEHOLDER, tenantDomain);
+            }
+            return accessUrl;
+        }
+        return null;
+    }
+    
+    private static class InboundAuthRequestConfigSerializer extends StdSerializer<InboundAuthenticationRequestConfig> {
+        
+        public InboundAuthRequestConfigSerializer() {
+            
+            super(InboundAuthenticationRequestConfig.class);
+        }
+        
+        @Override
+        public void serialize(InboundAuthenticationRequestConfig value, JsonGenerator gen, SerializerProvider provider)
+                throws IOException {
+            
+            gen.writeStartObject();
+            gen.writeStringField("inboundAuthKey", value.getInboundAuthKey());
+            gen.writeStringField("inboundAuthType", value.getInboundAuthType());
+            gen.writeStringField("friendlyName", value.getFriendlyName());
+            // Handle the data field.
+            if (value.getData() != null && !value.getData().isEmpty()) {
+                gen.writeObjectField("config", value.getData());
+            }
+            gen.writeEndObject();
+        }
+    }
 }

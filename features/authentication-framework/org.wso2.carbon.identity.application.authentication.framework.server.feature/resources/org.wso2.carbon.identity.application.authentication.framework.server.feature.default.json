@@ -57,16 +57,13 @@
     "password",
     "SAMLRequest"
   ],
-  "authentication.endpoint.redirect_params.filter_policy": "exclude",
-  "authentication.endpoint.redirect_params.remove_on_consume_from_api": true,
-  "authentication.endpoint.redirect_params.parameters": [
-    "loggedInUser"
-  ],
+  "authentication.endpoint.consent_page_redirect_params.allow": false,
 
   "authentication.authenticator.basic.name": "BasicAuthenticator",
   "authentication.authenticator.basic.enable": true,
   "authentication.authenticator.basic.parameters.AuthMechanism": "basic",
   "authentication.authenticator.basic.parameters.Tags": "Username-Password",
+  "authentication.authenticator.basic.parameters.redirectToRetryPageOnAccountLock": "false",
 
   "authentication.authenticator.basic_request_path.name": "BasicAuthRequestPathAuthenticator",
   "authentication.authenticator.basic_request_path.enable": true,
@@ -101,6 +98,8 @@
   "authentication.authenticator.google.parameters.GoogleAuthzEndpoint": "https://accounts.google.com/o/oauth2/auth",
   "authentication.authenticator.google.parameters.GoogleUserInfoEndpoint": "https://www.googleapis.com/oauth2/v3/userinfo",
   "authentication.authenticator.google.parameters.Tags": "Social-Login",
+  "authentication.authenticator.google.parameters.EnableCSRFValidationForGOT": true,
+  "authentication.authenticator.google.parameters.RestrictedBrowsersForGOT": ["safari"],
 
   "authentication.authenticator.microsoft_live.name": "MicrosoftWindowsLive",
   "authentication.authenticator.microsoft_live.enable": true,
@@ -116,18 +115,26 @@
   "authentication.authenticator.facebook.parameters.UserInfoEndpoint": "https://graph.facebook.com/me",
   "authentication.authenticator.facebook.parameters.Tags": "Social-Login",
 
-  "authentication.authenticator.yahoo.name": "YahooOAuth2Authenticator",
-  "authentication.authenticator.yahoo.enable": true,
-  "authentication.authenticator.yahoo.parameters.YahooTokenEndpoint": "https://api.login.yahoo.com/oauth2/get_token",
-  "authentication.authenticator.yahoo.parameters.YahooOAuthzEndpoint": "https://api.login.yahoo.com/oauth2/request_auth",
-  "authentication.authenticator.yahoo.parameters.YahooUserInfoEndpoint": "https://api.login.yahoo.com/openid/v1/userinfo",
-  "authentication.authenticator.yahoo.parameters.Tags": "Social-Login",
+  "authentication.authenticator.apple.name": "AppleOIDCAuthenticator",
+  "authentication.authenticator.apple.enable": true,
+  "authentication.authenticator.apple.parameters.AppleTokenEndpoint": "https://appleid.apple.com/auth/token",
+  "authentication.authenticator.apple.parameters.AppleAuthzEndpoint": "https://appleid.apple.com/auth/authorize",
+  "authentication.authenticator.apple.parameters.Tags": "Social-Login",
 
   "authentication.authenticator.fido.name": "FIDOAuthenticator",
   "authentication.authenticator.fido.enable": true,
   "authentication.authenticator.fido.parameters.FidoAuth": "/authenticationendpoint/fido-auth.jsp",
   "authentication.authenticator.fido.parameters.Fido2Auth": "/authenticationendpoint/fido2-auth.jsp",
-  "authentication.authenticator.fido.parameters.Tags": "MFA,Passwordless",
+  "authentication.authenticator.fido.parameters.Fido2Enroll": "/authenticationendpoint/fido2-enroll.jsp",
+  "authentication.authenticator.fido.parameters.Fido2PasskeyStatus": "/authenticationendpoint/fido2-passkey-status.jsp",
+  "authentication.authenticator.fido.parameters.Fido2IdentifierFirst": "/authenticationendpoint/fido2-identifierfirst.jsp",
+  "authentication.authenticator.fido.parameters.Tags": "MFA,Passwordless,Passkey",
+
+  "authentication.authenticator.magiclink.name": "MagicLinkAuthenticator",
+  "authentication.authenticator.magiclink.enable": true,
+  "authentication.authenticator.magiclink.ExpiryTime": "300",
+  "authentication.authenticator.magiclink.parameters.Tags": "Passwordless",
+  "authentication.authenticator.magiclink.parameters.MagicLinkAuthenticationEndpointURL": "authenticationendpoint/magic_link_notification.do",
 
   "authentication.authenticator.mobile_connect.name": "MobileConnectAuthenticator",
   "authentication.authenticator.mobile_connect.enable": true,
@@ -155,13 +162,14 @@
   "authentication.authenticator.email_otp.parameters.GmailTokenEndpoint": "https://www.googleapis.com/oauth2/v3/token",
   "authentication.authenticator.email_otp.parameters.SendgridAuthTokenType": "Bearer",
   "authentication.authenticator.email_otp.parameters.redirectToMultiOptionPageOnFailure": false,
+  "authentication.authenticator.email_otp.parameters.enableRetryFromAuthenticator": true,
   "authentication.authenticator.email_otp.parameters.Tags": "MFA",
 
   "authentication.authenticator.sms_otp.name": "SMSOTP",
   "authentication.authenticator.sms_otp.enable": true,
-  "authentication.authenticator.sms_otp.parameters.SMSOTPAuthenticationEndpointURL": "smsotpauthenticationendpoint/smsotp.jsp",
-  "authentication.authenticator.sms_otp.parameters.SMSOTPAuthenticationEndpointErrorPage": "smsotpauthenticationendpoint/smsotpError.jsp",
-  "authentication.authenticator.sms_otp.parameters.MobileNumberRegPage": "smsotpauthenticationendpoint/mobile.jsp",
+  "authentication.authenticator.sms_otp.parameters.SMSOTPAuthenticationEndpointURL": "authenticationendpoint/smsOtp.jsp",
+  "authentication.authenticator.sms_otp.parameters.SMSOTPAuthenticationEndpointErrorPage": "authenticationendpoint/smsOtpError.jsp",
+  "authentication.authenticator.sms_otp.parameters.MobileNumberRegPage": "authenticationendpoint/mobile.jsp",
   "authentication.authenticator.sms_otp.parameters.RetryEnable": true,
   "authentication.authenticator.sms_otp.parameters.ResendEnable": true,
   "authentication.authenticator.sms_otp.parameters.BackupCode": true,
@@ -170,6 +178,7 @@
   "authentication.authenticator.sms_otp.parameters.CaptureAndUpdateMobileNumber": true,
   "authentication.authenticator.sms_otp.parameters.SendOTPDirectlyToMobile": false,
   "authentication.authenticator.sms_otp.parameters.redirectToMultiOptionPageOnFailure": false,
+  "authentication.authenticator.sms_otp.parameters.enableRetryFromAuthenticator": true,
   "authentication.authenticator.sms_otp.parameters.Tags": "MFA",
   "authentication.authenticator.sms_otp.parameters.enable_payload_encoding_for_sms_otp": true,
 
@@ -187,8 +196,10 @@
   "authentication.authenticator.totp.parameters.TOTPAuthenticationEndpointErrorPage": "authenticationendpoint/totp_error.do",
   "authentication.authenticator.totp.parameters.TOTPAuthenticationEndpointEnableTOTPPage": "authenticationendpoint/totp_enroll.do",
   "authentication.authenticator.totp.parameters.redirectToMultiOptionPageOnFailure": false,
+  "authentication.authenticator.totp.parameters.enableRetryFromAuthenticator": true,
   "authentication.authenticator.totp.parameters.AllowSendingVerificationCodeByEmail": false,
   "authentication.authenticator.totp.parameters.HideUserStoreFromDisplayInQRUrl": false,
+  "authentication.authenticator.totp.parameters.EnableAccountLockingForFailedAttempts": true,
   "authentication.authenticator.totp.parameters.Tags": "MFA",
 
   "authentication.authenticator.backup_code.name": "backup-code-authenticator",
@@ -216,8 +227,23 @@
   "authentication.authenticator.iwa_kerberos.name": "IWAKerberosAuthenticator",
   "authentication.authenticator.iwa_kerberos.parameters.Tags": "Enterprise",
 
+  "authentication.authenticator.email_otp_local.name": "email-otp-authenticator",
+  "authentication.authenticator.email_otp_local.enable": true,
+  "authentication.authenticator.email_otp_local.parameters.Tags": "Passwordless,MFA",
+  "authentication.authenticator.email_otp_local.parameters.redirectToMultiOptionPageOnFailure": false,
+  "authentication.authenticator.email_otp_local.parameters.enableRetryFromAuthenticator": true,
+
+  "authentication.authenticator.sms_otp_local.name": "sms-otp-authenticator",
+  "authentication.authenticator.sms_otp_local.enable": true,
+  "authentication.authenticator.sms_otp_local.parameters.Tags": "Passwordless,MFA",
+  "authentication.authenticator.sms_otp_local.parameters.redirectToMultiOptionPageOnFailure": false,
+  "authentication.authenticator.sms_otp_local.parameters.enableRetryFromAuthenticator": true,
+
   "account_recovery.endpoint.auth.name":"dashboard",
   "account_recovery.endpoint.auth.hash":"66cd9688a2ae068244ea01e70f0e230f5623b7fa4cdecb65070a09ec06452262",
+
+  "authorization_control.skip_authorization.client_authentication.name":"ClientAuthentication",
+  "authorization_control.skip_authorization.client_authentication.allowedEndpoints": "(.*)/accountrecoveryendpoint(.*),(.*)/api/identity/recovery/(.*),(.*)/data/AuthRequestKey/(.*),(.*)/applications(.*),(.*)/identity-governance(.*),(.*)/user/(.*)/validate-username(.*),(.*)/consent-mgt/v(.*)/consents/(.*),(.*)/user/v(.*)/me(.*),(.*)/identity/auth/v(.*)/data/(.*),(.*)/identity/user/v(.*)/validate-code,(.*)/api/server/v(.*)/identity-providers(.*),(.*)/api/identity/auth/(.*)/context(.*),(.*)/api/identity/user/v(.*)/resend-code(.*),(.*)/api/users/v2/recovery/password/(.*)",
 
   "jit_provisioning.indelible_claims.claim_uris": [
     "http://wso2.org/claims/userid",
@@ -226,6 +252,13 @@
     "http://wso2.org/claims/roles",
     "http://wso2.org/claims/created",
     "http://wso2.org/claims/modified",
-    "http://wso2.org/claims/groups"
-  ]
+    "http://wso2.org/claims/groups",
+    "http://wso2.org/claims/userprincipal"
+  ],
+  "oauth.restricted_scopes": [
+    "internal",
+    "console",
+    "SYSTEM"
+  ],
+  "authentication.jit_provisioning.associating_to_existing_user": false
 }

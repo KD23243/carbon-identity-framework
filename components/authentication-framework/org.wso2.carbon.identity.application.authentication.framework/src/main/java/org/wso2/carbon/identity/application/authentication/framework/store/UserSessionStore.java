@@ -27,12 +27,12 @@ import org.wso2.carbon.identity.application.authentication.framework.context.Aut
 import org.wso2.carbon.identity.application.authentication.framework.exception.DuplicatedAuthUserException;
 import org.wso2.carbon.identity.application.authentication.framework.exception.UserSessionException;
 import org.wso2.carbon.identity.application.authentication.framework.util.FrameworkUtils;
-import org.wso2.carbon.identity.application.authentication.framework.util.JdbcUtils;
 import org.wso2.carbon.identity.application.authentication.framework.util.SessionMgtConstants;
 import org.wso2.carbon.identity.application.common.model.User;
 import org.wso2.carbon.identity.core.util.IdentityDatabaseUtil;
 import org.wso2.carbon.identity.core.util.IdentityTenantUtil;
 import org.wso2.carbon.identity.core.util.IdentityUtil;
+import org.wso2.carbon.identity.core.util.JdbcUtils;
 import org.wso2.carbon.idp.mgt.util.IdPManagementUtil;
 
 import java.sql.Connection;
@@ -47,7 +47,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
-import static org.wso2.carbon.identity.core.util.JdbcUtils.isH2DB;
+import static org.wso2.carbon.identity.application.authentication.framework.util.FrameworkConstants.LOCAL_IDP_NAME;
 
 /**
  * Class to store and retrieve user related data.
@@ -56,7 +56,7 @@ public class UserSessionStore {
 
     private static final Log log = LogFactory.getLog(UserSessionStore.class);
 
-    private static UserSessionStore instance = new UserSessionStore();
+    private static final UserSessionStore instance = new UserSessionStore();
     private static final String FEDERATED_USER_DOMAIN = "FEDERATED";
     private static final String DELETE_CHUNK_SIZE_PROPERTY = "JDBCPersistenceManager.SessionDataPersist" +
             ".UserSessionMapping.DeleteChunkSize";
@@ -156,11 +156,10 @@ public class UserSessionStore {
         String userId = null;
         try (Connection connection = IdentityDatabaseUtil.getSessionDBConnection(false)) {
             try (PreparedStatement preparedStatement = connection
-                            .prepareStatement(SQLQueries.SQL_SELECT_USER_ID)) {
+                    .prepareStatement(SQLQueries.SQL_SELECT_USER_ID)) {
                 preparedStatement.setString(1, userName);
                 preparedStatement.setInt(2, tenantId);
-                preparedStatement.setString(3, (userDomain == null) ? FEDERATED_USER_DOMAIN :
-                        userDomain.toUpperCase());
+                preparedStatement.setString(3, (userDomain == null) ? FEDERATED_USER_DOMAIN : userDomain.toUpperCase());
                 preparedStatement.setInt(4, idPId);
 
                 try (ResultSet resultSet = preparedStatement.executeQuery()) {
@@ -200,11 +199,10 @@ public class UserSessionStore {
         String userId = null;
         try (Connection connection = IdentityDatabaseUtil.getSessionDBConnection(false)) {
             try (PreparedStatement preparedStatement = connection
-                            .prepareStatement(SQLQueries.SQL_SELECT_USER_IDS_OF_USER)) {
+                    .prepareStatement(SQLQueries.SQL_SELECT_USER_IDS_OF_USER)) {
                 preparedStatement.setString(1, userName);
                 preparedStatement.setInt(2, tenantId);
-                preparedStatement.setString(3, (userDomain == null) ? FEDERATED_USER_DOMAIN :
-                        userDomain.toUpperCase());
+                preparedStatement.setString(3, (userDomain == null) ? FEDERATED_USER_DOMAIN : userDomain.toUpperCase());
                 try (ResultSet resultSet = preparedStatement.executeQuery()) {
                     if (resultSet.next()) {
                         userId = resultSet.getString(1);
@@ -238,7 +236,7 @@ public class UserSessionStore {
         List<String> userIds = new ArrayList<>();
         try (Connection connection = IdentityDatabaseUtil.getSessionDBConnection(false)) {
             try (PreparedStatement preparedStatement = connection
-                            .prepareStatement(SQLQueries.SQL_SELECT_USER_IDS_OF_USER_STORE)) {
+                    .prepareStatement(SQLQueries.SQL_SELECT_USER_IDS_OF_USER_STORE)) {
                 preparedStatement.setString(1, userDomain.toUpperCase());
                 preparedStatement.setInt(2, tenantId);
                 try (ResultSet resultSet = preparedStatement.executeQuery()) {
@@ -275,7 +273,7 @@ public class UserSessionStore {
         }
         try (Connection connection = IdentityDatabaseUtil.getDBConnection(false)) {
             try (PreparedStatement preparedStatement = connection
-                            .prepareStatement(SQLQueries.SQL_SELECT_IDP_ID_OF_IDP)) {
+                    .prepareStatement(SQLQueries.SQL_SELECT_IDP_ID_OF_IDP)) {
                 preparedStatement.setString(1, idPName);
                 try (ResultSet resultSet = preparedStatement.executeQuery()) {
                     if (resultSet.next()) {
@@ -302,7 +300,10 @@ public class UserSessionStore {
     public int getIdPId(String idpName, int tenantId) throws UserSessionException {
 
         int idPId = -1;
-        if (idpName.equals("LOCAL")) {
+        if (StringUtils.isBlank(idpName)) {
+            throw new UserSessionException("Blank IDP Name is provided to retrieve IdP id of tenant ID: " + tenantId);
+        }
+        if (StringUtils.equals(LOCAL_IDP_NAME, idpName)) {
             return idPId;
         }
         try (Connection connection = IdentityDatabaseUtil.getDBConnection(false)) {
@@ -334,7 +335,7 @@ public class UserSessionStore {
 
         try (Connection connection = IdentityDatabaseUtil.getSessionDBConnection(true)) {
             try (PreparedStatement preparedStatement = connection
-                     .prepareStatement(SQLQueries.SQL_INSERT_USER_SESSION_STORE_OPERATION)) {
+                    .prepareStatement(SQLQueries.SQL_INSERT_USER_SESSION_STORE_OPERATION)) {
                 preparedStatement.setString(1, userId);
                 preparedStatement.setString(2, sessionId);
                 preparedStatement.executeUpdate();
@@ -342,10 +343,21 @@ public class UserSessionStore {
                 if (log.isDebugEnabled()) {
                     log.debug("Stored user session data for user " + userId + " with session id: " + sessionId);
                 }
+            } catch (SQLIntegrityConstraintViolationException e1) {
+                IdentityDatabaseUtil.rollbackTransaction(connection);
+                throw new DuplicatedAuthUserException("Mapping between user Id: " + userId + " and session Id: "
+                        + sessionId + " already exists in the database.", e1);
             } catch (SQLException e1) {
                 IdentityDatabaseUtil.rollbackTransaction(connection);
-                throw new UserSessionException("Error while storing mapping between user Id: " + userId +
-                        " and session Id: " + sessionId, e1);
+                // Handle constrain violation issue in JDBC drivers which does not throw
+                // SQLIntegrityConstraintViolationException
+                if (StringUtils.containsIgnoreCase(e1.getMessage(), "USER_SESSION_STORE_CONSTRAINT")) {
+                    throw new DuplicatedAuthUserException("Mapping between user Id: " + userId + " and session Id: "
+                            + sessionId + " already exists in the database.", e1);
+                } else {
+                    throw new UserSessionException("Error while storing mapping between user Id: " + userId +
+                            " and session Id: " + sessionId, e1);
+                }
             }
         } catch (SQLException e) {
             throw new UserSessionException("Error while storing mapping between user Id: " + userId +
@@ -363,10 +375,10 @@ public class UserSessionStore {
      */
     public boolean isExistingMapping(String userId, String sessionId) throws UserSessionException {
 
-        Boolean isExisting = false;
+        boolean isExisting = false;
         try (Connection connection = IdentityDatabaseUtil.getSessionDBConnection(false)) {
             try (PreparedStatement preparedStatement = connection
-                     .prepareStatement(SQLQueries.SQL_SELECT_USER_SESSION_MAP)) {
+                    .prepareStatement(SQLQueries.SQL_SELECT_USER_SESSION_MAP)) {
                 preparedStatement.setString(1, userId);
                 preparedStatement.setString(2, sessionId);
                 try (ResultSet resultSet = preparedStatement.executeQuery()) {
@@ -396,17 +408,17 @@ public class UserSessionStore {
 
         List<String> sessionIdList = new ArrayList<>();
         try (Connection connection = IdentityDatabaseUtil.getSessionDBConnection(false)) {
-             try (PreparedStatement preparedStatement = connection
-                     .prepareStatement(SQLQueries.SQL_SELECT_SESSION_ID_OF_USER_ID)) {
-                 preparedStatement.setString(1, userId);
-                 try (ResultSet resultSet = preparedStatement.executeQuery()) {
-                     while (resultSet.next()) {
-                         sessionIdList.add(resultSet.getString(1));
-                     }
-                 }
-             } catch (SQLException e1) {
-                 throw new UserSessionException("Error while retrieving session Id of user Id: " + userId, e1);
-             }
+            try (PreparedStatement preparedStatement = connection
+                    .prepareStatement(SQLQueries.SQL_SELECT_SESSION_ID_OF_USER_ID)) {
+                preparedStatement.setString(1, userId);
+                try (ResultSet resultSet = preparedStatement.executeQuery()) {
+                    while (resultSet.next()) {
+                        sessionIdList.add(resultSet.getString(1));
+                    }
+                }
+            } catch (SQLException e1) {
+                throw new UserSessionException("Error while retrieving session Id of user Id: " + userId, e1);
+            }
         } catch (SQLException e) {
             throw new UserSessionException("Error while retrieving session Id of user Id: " + userId, e);
         }
@@ -566,7 +578,7 @@ public class UserSessionStore {
         try {
             jdbcTemplate.withTransaction(template -> {
                 String query = SQLQueries.SQL_STORE_IDN_AUTH_SESSION_APP_INFO_H2;
-                if (JdbcUtils.isOracleDB()) {
+                if (JdbcUtils.isOracleDB(JdbcUtils.Database.SESSION)) {
                     query = SQLQueries.SQL_STORE_IDN_AUTH_SESSION_APP_INFO_ORACLE;
                     template.executeUpdate(query, preparedStatement -> {
                         preparedStatement.setString(1, sessionId);
@@ -579,13 +591,16 @@ public class UserSessionStore {
                         preparedStatement.setString(8, inboundAuth);
                     });
                 } else {
-                    if (JdbcUtils.isMSSqlDB() || JdbcUtils.isDB2DB()) {
-                        query = SQLQueries.SQL_STORE_IDN_AUTH_SESSION_APP_INFO_MSSQL_OR_DB2;
-                    } else if (JdbcUtils.isMySQLDB() ||  JdbcUtils.isMariaDB()) {
+                    if (JdbcUtils.isMSSqlDB(JdbcUtils.Database.SESSION)) {
+                        query = SQLQueries.SQL_STORE_IDN_AUTH_SESSION_APP_INFO_MSSQL;
+                    } else if (JdbcUtils.isDB2DB(JdbcUtils.Database.SESSION)) {
+                        query = SQLQueries.SQL_STORE_IDN_AUTH_SESSION_APP_INFO_DB2;
+                    } else if (JdbcUtils.isMySQLDB(JdbcUtils.Database.SESSION) ||
+                            JdbcUtils.isMariaDB(JdbcUtils.Database.SESSION)) {
                         query = SQLQueries.SQL_STORE_IDN_AUTH_SESSION_APP_INFO_MYSQL_OR_MARIADB;
-                    } else if (JdbcUtils.isPostgreSQLDB()) {
+                    } else if (JdbcUtils.isPostgreSQLDB(JdbcUtils.Database.SESSION)) {
                         query = SQLQueries.SQL_STORE_IDN_AUTH_SESSION_APP_INFO_POSTGRES;
-                    } else if (JdbcUtils.isOracleDB()) {
+                    } else if (JdbcUtils.isOracleDB(JdbcUtils.Database.SESSION)) {
                         query = SQLQueries.SQL_STORE_IDN_AUTH_SESSION_APP_INFO_ORACLE;
                     }
                     template.executeUpdate(query, preparedStatement -> {
@@ -701,7 +716,7 @@ public class UserSessionStore {
     }
 
     /**
-     * Method to store session meta data as a batch
+     * Method to store session meta data as a batch.
      *
      * @param sessionId id of the authenticated session
      * @param metaData  map of metadata type and value of the session
@@ -711,8 +726,8 @@ public class UserSessionStore {
 
         JdbcTemplate jdbcTemplate = JdbcUtils.getNewTemplate(JdbcUtils.Database.SESSION);
         try {
-            String sqlStmt = isH2DB() ? SQLQueries.SQL_INSERT_SESSION_META_DATA_H2 :
-                    SQLQueries.SQL_INSERT_SESSION_META_DATA;
+            String sqlStmt = JdbcUtils.isH2DB(JdbcUtils.Database.SESSION) ?
+                    SQLQueries.SQL_INSERT_SESSION_META_DATA_H2 : SQLQueries.SQL_INSERT_SESSION_META_DATA;
             jdbcTemplate.executeBatchInsert(sqlStmt, (preparedStatement -> {
                 for (Map.Entry<String, String> entry : metaData.entrySet()) {
                     preparedStatement.setString(1, sessionId);
@@ -743,8 +758,8 @@ public class UserSessionStore {
 
         JdbcTemplate jdbcTemplate = JdbcUtils.getNewTemplate(JdbcUtils.Database.SESSION);
         try {
-            String sqlStmt = isH2DB() ? SQLQueries.SQL_UPDATE_SESSION_META_DATA_H2 :
-                    SQLQueries.SQL_UPDATE_SESSION_META_DATA;
+            String sqlStmt = JdbcUtils.isH2DB(JdbcUtils.Database.SESSION) ?
+                    SQLQueries.SQL_UPDATE_SESSION_META_DATA_H2 : SQLQueries.SQL_UPDATE_SESSION_META_DATA;
             jdbcTemplate.executeUpdate(sqlStmt, preparedStatement -> {
                 preparedStatement.setString(1, value);
                 preparedStatement.setString(2, sessionId);
@@ -841,15 +856,16 @@ public class UserSessionStore {
     public void storeFederatedAuthSessionInfo(String sessionContextKey, AuthHistory authHistory)
             throws UserSessionException {
 
-        try (Connection connection = IdentityDatabaseUtil.getDBConnection(false)) {
-             try (PreparedStatement prepStmt
-                     = connection.prepareStatement(SQLQueries.SQL_STORE_FEDERATED_AUTH_SESSION_INFO)) {
+        try (Connection connection = IdentityDatabaseUtil.getDBConnection(true)) {
+            try (PreparedStatement prepStmt
+                         = connection.prepareStatement(SQLQueries.SQL_STORE_FEDERATED_AUTH_SESSION_INFO)) {
                 prepStmt.setString(1, authHistory.getIdpSessionIndex());
                 prepStmt.setString(2, sessionContextKey);
                 prepStmt.setString(3, authHistory.getIdpName());
                 prepStmt.setString(4, authHistory.getAuthenticatorName());
                 prepStmt.setString(5, authHistory.getRequestType());
                 prepStmt.execute();
+                IdentityDatabaseUtil.commitTransaction(connection);
             } catch (SQLException e1) {
                 IdentityDatabaseUtil.rollbackTransaction(connection);
                 throw new UserSessionException("Error while adding session details of the session index:"
@@ -858,6 +874,95 @@ public class UserSessionStore {
         } catch (SQLException e) {
             throw new UserSessionException("Error while adding session details of the session index:"
                     + sessionContextKey + ", IdP:" + authHistory.getIdpName(), e);
+        }
+    }
+
+    /**
+     * Store session details with the given session context key for the federated IdP's session ID.
+     *
+     * @param sessionContextKey Session Context Key.
+     * @param authHistory       History of the authentication flow.
+     * @param tenantId          Tenant id.
+     * @throws UserSessionException Error while storing session details.
+     */
+    public void storeFederatedAuthSessionInfo(String sessionContextKey, AuthHistory authHistory, int tenantId)
+            throws UserSessionException {
+
+        try (Connection connection = IdentityDatabaseUtil.getDBConnection(true);
+             PreparedStatement prepStmt = connection
+                     .prepareStatement(SQLQueries.SQL_STORE_FEDERATED_AUTH_SESSION_INFO_WITH_TENANT)) {
+            prepStmt.setString(1, authHistory.getIdpSessionIndex());
+            prepStmt.setString(2, sessionContextKey);
+            prepStmt.setString(3, authHistory.getIdpName());
+            prepStmt.setString(4, authHistory.getAuthenticatorName());
+            prepStmt.setString(5, authHistory.getRequestType());
+            prepStmt.setInt(6, tenantId);
+            prepStmt.execute();
+            IdentityDatabaseUtil.commitTransaction(connection);
+        } catch (SQLException e) {
+            String msg = String.format("Error while adding session details of the session index: %s, IdP: %s " +
+                    "and tenant id: %s.", sessionContextKey, authHistory.getIdpName(), tenantId);
+            throw new UserSessionException(msg, e);
+        }
+    }
+
+    /**
+     * Store session details with the given session context key for the federated IdP's session ID.
+     *
+     * @param sessionContextKey Session Context Key.
+     * @param authHistory       History of the authentication flow.
+     * @param idpId             Federated IDP ID.
+     * @throws UserSessionException Error while storing session details.
+     */
+    public void storeFederatedAuthSessionInfoWithIdpId(String sessionContextKey, AuthHistory authHistory, int idpId)
+            throws UserSessionException {
+
+        try (Connection connection = IdentityDatabaseUtil.getDBConnection(true);
+             PreparedStatement prepStmt = connection
+                     .prepareStatement(SQLQueries.SQL_STORE_FEDERATED_AUTH_SESSION_INFO_WITH_IDP_ID)) {
+            prepStmt.setString(1, authHistory.getIdpSessionIndex());
+            prepStmt.setString(2, sessionContextKey);
+            prepStmt.setString(3, authHistory.getIdpName());
+            prepStmt.setString(4, authHistory.getAuthenticatorName());
+            prepStmt.setString(5, authHistory.getRequestType());
+            prepStmt.setInt(6, idpId);
+            prepStmt.execute();
+            IdentityDatabaseUtil.commitTransaction(connection);
+        } catch (SQLException e) {
+            String msg = String.format("Error while adding session details of the session index: %s, IdP: %s " +
+                    "and IdP ID: %s.", sessionContextKey, authHistory.getIdpName(), idpId);
+            throw new UserSessionException(msg, e);
+        }
+    }
+
+    /**
+     * Store session details if not exist of a given session context key to map the session context key with
+     * the federated IdP's session ID.
+     *
+     * @param sessionContextKey Session Context Key.
+     * @param authHistory       History of the authentication flow.
+     * @param tenantId          Tenant id.
+     * @param idpId             Federated IdP id.
+     * @throws UserSessionException Error while storing session details.
+     */
+    public void storeFederatedAuthSessionInfo(String sessionContextKey, AuthHistory authHistory, int tenantId,
+                                              int idpId) throws UserSessionException {
+
+        try (Connection connection = IdentityDatabaseUtil.getDBConnection(false);
+             PreparedStatement prepStmt = connection
+                     .prepareStatement(SQLQueries.SQL_STORE_FEDERATED_AUTH_SESSION_INFO_WITH_TENANT_AND_IDP_ID)) {
+            prepStmt.setString(1, authHistory.getIdpSessionIndex());
+            prepStmt.setString(2, sessionContextKey);
+            prepStmt.setString(3, authHistory.getIdpName());
+            prepStmt.setString(4, authHistory.getAuthenticatorName());
+            prepStmt.setString(5, authHistory.getRequestType());
+            prepStmt.setInt(6, tenantId);
+            prepStmt.setInt(7, idpId);
+            prepStmt.execute();
+        } catch (SQLException e) {
+            String msg = String.format("Error while adding session details of the session index: %s, IdP: %s " +
+                    "and tenant id: %s.", sessionContextKey, authHistory.getIdpName(), tenantId);
+            throw new UserSessionException(msg, e);
         }
     }
 
@@ -881,6 +986,92 @@ public class UserSessionStore {
         } catch (DataAccessException e) {
             throw new UserSessionException("Error while updating " + sessionContextKey + " of session:" +
                     authHistory.getIdpSessionIndex() + " in table " + IDN_AUTH_SESSION_META_DATA_TABLE + ".", e);
+        }
+    }
+
+    /**
+     * Update session details of a given session context key to map the current session context key with
+     * the federated IdP's session ID.
+     *
+     * @param sessionContextKey Session Context Key.
+     * @param authHistory       History of the authentication flow.
+     * @param tenantId          Tenant id.
+     * @throws UserSessionException Error while storing session details.
+     */
+    public void updateFederatedAuthSessionInfo(String sessionContextKey, AuthHistory authHistory, int tenantId) throws
+            UserSessionException {
+
+        JdbcTemplate jdbcTemplate = JdbcUtils.getNewTemplate();
+        try {
+            jdbcTemplate.executeUpdate(
+                    SQLQueries.SQL_UPDATE_FEDERATED_AUTH_SESSION_INFO_WITH_TENANT, preparedStatement -> {
+                        preparedStatement.setString(1, sessionContextKey);
+                        preparedStatement.setString(2, authHistory.getIdpSessionIndex());
+                        preparedStatement.setInt(3, tenantId);
+                    });
+        } catch (DataAccessException e) {
+            String msg = String.format("Error while updating %s of session: %s in table " +
+                            "IDN_FED_AUTH_SESSION_MAPPING for tenant id %s.", sessionContextKey,
+                    authHistory.getIdpSessionIndex(), tenantId);
+            throw new UserSessionException(msg, e);
+        }
+    }
+
+    /**
+     * Update session details of a given session context key to map the current session context key with
+     * the federated IdP's session ID.
+     *
+     * @param sessionContextKey Session Context Key.
+     * @param authHistory       History of the authentication flow.
+     * @param idpId             Federated IDP id.
+     * @throws UserSessionException Error while storing session details.
+     */
+    public void updateFederatedAuthSessionInfoWithIdpId(String sessionContextKey, AuthHistory authHistory, int idpId)
+            throws UserSessionException {
+
+        JdbcTemplate jdbcTemplate = JdbcUtils.getNewTemplate();
+        try {
+            jdbcTemplate.executeUpdate(
+                    SQLQueries.SQL_UPDATE_FEDERATED_AUTH_SESSION_INFO_WITH_IDP_ID, preparedStatement -> {
+                        preparedStatement.setString(1, sessionContextKey);
+                        preparedStatement.setString(2, authHistory.getIdpSessionIndex());
+                        preparedStatement.setInt(3, idpId);
+                    });
+        } catch (DataAccessException e) {
+            String msg = String.format("Error while updating %s of session: %s in table " +
+                            "IDN_FED_AUTH_SESSION_MAPPING for idp id %s.", sessionContextKey,
+                    authHistory.getIdpSessionIndex(), idpId);
+            throw new UserSessionException(msg, e);
+        }
+    }
+
+    /**
+     * Update session details of a given session context key to map the current session context key with
+     * the federated IdP's session ID.
+     *
+     * @param sessionContextKey Session Context Key.
+     * @param authHistory       History of the authentication flow.
+     * @param tenantId          Tenant id.
+     * @param idpId             Federated IdP id.
+     * @throws UserSessionException Error while storing session details.
+     */
+    public void updateFederatedAuthSessionInfo(String sessionContextKey, AuthHistory authHistory, int tenantId,
+            int idpId) throws UserSessionException {
+
+        JdbcTemplate jdbcTemplate = JdbcUtils.getNewTemplate();
+        try {
+            jdbcTemplate.executeUpdate(
+                    SQLQueries.SQL_UPDATE_FEDERATED_AUTH_SESSION_INFO_WITH_TENANT_AND_IDP_ID, preparedStatement -> {
+                        preparedStatement.setString(1, sessionContextKey);
+                        preparedStatement.setString(2, authHistory.getIdpSessionIndex());
+                        preparedStatement.setInt(3, tenantId);
+                        preparedStatement.setInt(4, idpId);
+                    });
+        } catch (DataAccessException e) {
+            String msg = String.format("Error while updating %s of session: %s in table " +
+                            "IDN_FED_AUTH_SESSION_MAPPING for tenant id %s and idp id %s", sessionContextKey,
+                    authHistory.getIdpSessionIndex(), tenantId, idpId);
+            throw new UserSessionException(msg, e);
         }
     }
 
@@ -911,6 +1102,99 @@ public class UserSessionStore {
     }
 
     /**
+     * Check whether there is already existing federated auth session with the given session index and the tenant id.
+     *
+     * @param idpSessionIndex IDP session index.
+     * @param tenantId        Tenant id.
+     * @return True if a federated auth session found with the given session index.
+     * @throws UserSessionException If an error occurred while checking for an federated auth session.
+     */
+    public boolean isExistingFederatedAuthSessionAvailable(String idpSessionIndex, int tenantId)
+            throws UserSessionException {
+
+        boolean isExisting = false;
+        try (Connection connection = IdentityDatabaseUtil.getDBConnection(false);
+             PreparedStatement prepStmt = connection.prepareStatement(
+                     SQLQueries.SQL_GET_FEDERATED_AUTH_SESSION_ID_BY_SESSION_ID_WITH_TENANT)) {
+            prepStmt.setString(1, idpSessionIndex);
+            prepStmt.setInt(2, tenantId);
+            try (ResultSet resultSet = prepStmt.executeQuery()) {
+                if (resultSet.next()) {
+                    isExisting = true;
+                }
+            }
+        } catch (SQLException e) {
+            String msg = String.format("Error occurred while checking for a federated auth session with " +
+                    "session index: %s and tenant id: %s", idpSessionIndex, tenantId);
+            throw new UserSessionException(msg, e);
+        }
+        return isExisting;
+    }
+
+    /**
+     * Check whether there is already existing federated auth session with the given session index and the idp id.
+     *
+     * @param idpSessionIndex IDP session index.
+     * @param idpId           Federated IDP ID.
+     * @return True if a federated auth session found with the given session index.
+     * @throws UserSessionException If an error occurred while checking for an federated auth session.
+     */
+    public boolean hasExistingFederatedAuthSessionWithIdpId(String idpSessionIndex, int idpId)
+            throws UserSessionException {
+
+        boolean isExisting = false;
+        try (Connection connection = IdentityDatabaseUtil.getDBConnection(false);
+             PreparedStatement prepStmt = connection.prepareStatement(
+                     SQLQueries.SQL_GET_FEDERATED_AUTH_SESSION_ID_BY_SESSION_ID_WITH_IDP_ID)) {
+            prepStmt.setString(1, idpSessionIndex);
+            prepStmt.setInt(2, idpId);
+            try (ResultSet resultSet = prepStmt.executeQuery()) {
+                if (resultSet.next()) {
+                    isExisting = true;
+                }
+            }
+        } catch (SQLException e) {
+            String msg = String.format("Error occurred while checking for a federated auth session with " +
+                    "session index: %s and idp id: %s", idpSessionIndex, idpId);
+            throw new UserSessionException(msg, e);
+        }
+        return isExisting;
+    }
+
+    /**
+     * Check whether there is already existing federated auth session with the given session index, tenant id and
+     * idp id.
+     *
+     * @param idpSessionIndex IDP session index.
+     * @param tenantId        Tenant id.
+     * @param idpId           Federated IDP id.
+     * @return True if a federated auth session found with the given session index.
+     * @throws UserSessionException If an error occurred while checking for an federated auth session.
+     */
+    public boolean hasExistingFederatedAuthSession(String idpSessionIndex, int tenantId, int idpId)
+            throws UserSessionException {
+
+        boolean isExisting = false;
+        try (Connection connection = IdentityDatabaseUtil.getDBConnection(false);
+             PreparedStatement prepStmt = connection.prepareStatement(
+                     SQLQueries.SQL_GET_FEDERATED_AUTH_SESSION_ID_BY_SESSION_ID_WITH_TENANT_AND_IDP_ID)) {
+            prepStmt.setString(1, idpSessionIndex);
+            prepStmt.setInt(2, tenantId);
+            prepStmt.setInt(3, idpId);
+            try (ResultSet resultSet = prepStmt.executeQuery()) {
+                if (resultSet.next()) {
+                    isExisting = true;
+                }
+            }
+        } catch (SQLException e) {
+            String msg = String.format("Error occurred while checking for a federated auth session with " +
+                    "session index: %s ,tenant id: %s and idp id: %s", idpSessionIndex, tenantId, idpId);
+            throw new UserSessionException(msg, e);
+        }
+        return isExisting;
+    }
+
+    /**
      * Remove federated authentication session details of a given session context key.
      *
      * @param sessionContextKey Session Context Key.
@@ -918,11 +1202,39 @@ public class UserSessionStore {
      */
     public void removeFederatedAuthSessionInfo(String sessionContextKey) throws UserSessionException {
 
-        try (Connection connection = IdentityDatabaseUtil.getDBConnection(false)) {
-             try (PreparedStatement prepStmt
-                     = connection.prepareStatement(SQLQueries.SQL_DELETE_FEDERATED_AUTH_SESSION_INFO)) {
+        try (Connection connection = IdentityDatabaseUtil.getDBConnection(true)) {
+            try (PreparedStatement prepStmt
+                         = connection.prepareStatement(SQLQueries.SQL_DELETE_FEDERATED_AUTH_SESSION_INFO)) {
                 prepStmt.setString(1, sessionContextKey);
                 prepStmt.execute();
+                IdentityDatabaseUtil.commitTransaction(connection);
+            } catch (SQLException e1) {
+                IdentityDatabaseUtil.rollbackTransaction(connection);
+                throw new UserSessionException("Error while removing federated authentication session details of " +
+                        "the session index:" + sessionContextKey, e1);
+            }
+        } catch (SQLException e) {
+            throw new UserSessionException("Error while removing federated authentication session details of " +
+                    "the session index:" + sessionContextKey, e);
+        }
+    }
+
+    /**
+     * Remove federated authentication session details of a given session context key.
+     *
+     * @param sessionContextKey     Session Context Key.
+     * @param idpId                 ID of the federated IdP.
+     * @throws UserSessionException Error while deleting session details of a given session id.
+     */
+    public void removeFederatedAuthSessionInfo(String sessionContextKey, int idpId) throws UserSessionException {
+
+        try (Connection connection = IdentityDatabaseUtil.getDBConnection(true)) {
+            try (PreparedStatement prepStmt
+                         = connection.prepareStatement(SQLQueries.SQL_DELETE_FEDERATED_AUTH_SESSION_INFO_WITH_IDP_ID)) {
+                prepStmt.setString(1, sessionContextKey);
+                prepStmt.setInt(2, idpId);
+                prepStmt.execute();
+                IdentityDatabaseUtil.commitTransaction(connection);
             } catch (SQLException e1) {
                 IdentityDatabaseUtil.rollbackTransaction(connection);
                 throw new UserSessionException("Error while removing federated authentication session details of " +
@@ -943,7 +1255,7 @@ public class UserSessionStore {
      */
     public boolean isExistingUser(String userId) throws UserSessionException {
 
-        Boolean isExisting = false;
+        boolean isExisting = false;
         try (Connection connection = IdentityDatabaseUtil.getSessionDBConnection(false)) {
             try (PreparedStatement preparedStatement = connection
                     .prepareStatement(SQLQueries.SQL_SELECT_INFO_OF_USER_ID)) {
@@ -976,9 +1288,10 @@ public class UserSessionStore {
         long currentTime = System.currentTimeMillis();
         long minTimestamp = currentTime - idleSessionTimeOut;
 
-        try (Connection connection = IdentityDatabaseUtil.getSessionDBConnection(false)) {
-            String sqlStmt = isH2DB() ? SQLQueries.SQL_GET_ACTIVE_SESSION_COUNT_BY_TENANT_H2 :
-                        SQLQueries.SQL_GET_ACTIVE_SESSION_COUNT_BY_TENANT;
+        try (Connection connection = IdentityDatabaseUtil.getSessionDBConnection(true)) {
+            String sqlStmt = JdbcUtils.isH2DB(JdbcUtils.Database.SESSION)
+                    ? SQLQueries.SQL_GET_ACTIVE_SESSION_COUNT_BY_TENANT_H2
+                    : SQLQueries.SQL_GET_ACTIVE_SESSION_COUNT_BY_TENANT;
             try (PreparedStatement preparedStatement = connection.prepareStatement(sqlStmt)) {
                 preparedStatement.setString(1, SessionMgtConstants.LAST_ACCESS_TIME);
                 preparedStatement.setString(2, String.valueOf(minTimestamp));

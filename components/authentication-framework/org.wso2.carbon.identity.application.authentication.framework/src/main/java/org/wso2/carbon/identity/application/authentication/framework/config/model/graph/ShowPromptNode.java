@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018, WSO2 Inc. (http://www.wso2.org) All Rights Reserved.
+ * Copyright (c) 2018, WSO2 LLC. (http://www.wso2.org) All Rights Reserved.
  *
  * WSO2 Inc. licenses this file to you under the Apache License,
  * Version 2.0 (the "License"); you may not use this file except
@@ -35,7 +35,7 @@ public class ShowPromptNode extends DynamicDecisionNode implements AuthGraphNode
     private String templateId;
     private Map<String, Serializable> data;
     private Map<String, Object> parameters;
-    private Map<String, SerializableJsFunction> handlerMap = new HashMap<>();
+    private Map<String, GenericSerializableJsFunction> handlerMap = new HashMap<>();
 
     public String getTemplateId() {
 
@@ -67,17 +67,36 @@ public class ShowPromptNode extends DynamicDecisionNode implements AuthGraphNode
         this.parameters = parameters;
     }
 
-    public Map<String, SerializableJsFunction> getHandlerMap() {
+    public Map<String, BaseSerializableJsFunction> getHandlerMap() {
+
+        if (isHandlerMapInstanceOfBaseSerializableJsFunction()) {
+            return Collections.unmodifiableMap((Map<String, BaseSerializableJsFunction>) (Map) handlerMap);
+        }
+        return null;
+    }
+
+    public Map<String, GenericSerializableJsFunction> getGenericHandlerMap() {
 
         return Collections.unmodifiableMap(handlerMap);
     }
 
-    public void setHandlerMap(Map<String, SerializableJsFunction> handlerMap) {
+    public void setHandlerMap(Map<String, BaseSerializableJsFunction> handlerMap) {
+
+        if (isHandlerMapInstanceOfBaseSerializableJsFunction()) {
+            this.handlerMap = (Map<String, GenericSerializableJsFunction>) (Map) handlerMap;
+        }
+    }
+
+    public void setGenericHandlerMap(Map<String, GenericSerializableJsFunction> handlerMap) {
 
         this.handlerMap = handlerMap;
     }
 
-    public void addHandler(String outcome, SerializableJsFunction function) {
+    public void addHandler(String outcome, BaseSerializableJsFunction function) {
+        handlerMap.put(outcome, function);
+    }
+
+    public void addGenericHandler(String outcome, GenericSerializableJsFunction function) {
         handlerMap.put(outcome, function);
     }
 
@@ -85,5 +104,14 @@ public class ShowPromptNode extends DynamicDecisionNode implements AuthGraphNode
     public String getName() {
 
         return "ShowPromptNode";
+    }
+
+    private boolean isHandlerMapInstanceOfBaseSerializableJsFunction() {
+
+        if (handlerMap == null || handlerMap.isEmpty()) {
+            return true;
+        }
+        // Get the first element of the map and check if that is an instance of BaseSerializableJsFunction
+        return handlerMap.entrySet().iterator().next().getValue() instanceof BaseSerializableJsFunction;
     }
 }

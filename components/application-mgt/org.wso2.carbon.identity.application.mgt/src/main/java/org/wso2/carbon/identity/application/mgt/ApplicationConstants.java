@@ -1,7 +1,7 @@
 /*
- * Copyright (c) 2014, WSO2 Inc. (http://www.wso2.org) All Rights Reserved.
+ * Copyright (c) 2014-2024, WSO2 LLC. (http://www.wso2.com).
  *
- * WSO2 Inc. licenses this file to you under the Apache License,
+ * WSO2 LLC. licenses this file to you under the Apache License,
  * Version 2.0 (the "License"); you may not use this file except
  * in compliance with the License.
  * You may obtain a copy of the License at
@@ -57,6 +57,10 @@ public class ApplicationConstants {
     public static final String TEMPLATE_CATEGORY = "category";
     public static final String CATEGORY_DISPLAY_NAME = "displayName";
     public static final String CATEGORY_ORDER = "order";
+    public static final String RUN_TIME = "runtime";
+    public static final String RUN_TIME_ANY = "any";
+    public static final String RUN_TIME_NEW = "new";
+    public static final String RUN_TIME_LEGACY = "legacy";
     public static final String CATEGORY_TEMPLATES = "templates";
     public static final String UNCATEGORIZED = "uncategorized";
     public static final String DISPLAY_NAME_FOR_UNCATEGORIZED = "Uncategorized";
@@ -79,6 +83,8 @@ public class ApplicationConstants {
     public static final String S_MICROSOFT = "microsoft";
     public static final String INFORMIX = "Informix";
     public static final String H2 = "H2";
+    public static final String ORACLE = "Oracle";
+    public static final String UNION_SEPARATOR = " UNION ALL ";
     public static final String DEFAULT_AUTH_SEQ = "default_sequence";
     public static final int DEFAULT_RESULTS_PER_PAGE = 10;
     public static final String ITEMS_PER_PAGE_PROPERTY = "ItemsPerPage";
@@ -94,13 +100,46 @@ public class ApplicationConstants {
 
     // System application config elements
     public static final String SYSTEM_APPLICATIONS_CONFIG_ELEMENT = "SystemApplications";
+    public static final String DEFAULT_APPLICATIONS_CONFIG_ELEMENT = "DefaultApplications";
     public static final String APPLICATION_NAME_CONFIG_ELEMENT = "ApplicationName";
 
     // Application Management Service Configurations.
     public static final String ENABLE_APPLICATION_ROLE_VALIDATION_PROPERTY = "ApplicationMgt.EnableRoleValidation";
 
+    public static final String NON_EXISTING_USER_CODE = "30007 - ";
+
+    // Console and My Account application names.
+    public static final String CONSOLE_APPLICATION_NAME = "Console";
+    public static final String MY_ACCOUNT_APPLICATION_NAME = "My Account";
+    public static final String CONSOLE_ACCESS_URL_FROM_SERVER_CONFIGS = "Console.AccessURL";
+    public static final String MY_ACCOUNT_ACCESS_URL_FROM_SERVER_CONFIGS = "MyAccount.AccessURL";
+    public static final String CONSOLE_APPLICATION_CLIENT_ID = "CONSOLE";
+    public static final String CONSOLE_APPLICATION_INBOUND_TYPE = "oauth2";
+    public static final String MY_ACCOUNT_APPLICATION_CLIENT_ID = "MY_ACCOUNT";
+    public static final String TENANT_DOMAIN_PLACEHOLDER = "{TENANT_DOMAIN}";
+    public static final String CONSOLE_ACCESS_ORIGIN = "Console.Origin";
+    public static final String MYACCOUNT_ACCESS_ORIGIN = "MyAccount.Origin";
+    public static final String CONSOLE_PORTAL_PATH = "Console.AppBaseName";
+    public static final String MYACCOUNT_PORTAL_PATH = "MyAccount.AppBaseName";
+
     /**
-     * Grouping of constants related to database table names.
+     * Group the constants related to logs.
+     */
+    public static class LogConstants {
+
+        public static final String TARGET_APPLICATION = "APPLICATION";
+        public static final String USER = "USER";
+        public static final String INBOUND_AUTHENTICATION_CONFIG = "inboundAuthenticationConfig";
+        public static final String APP_OWNER = "owner";
+        public static final String DISABLE_LEGACY_AUDIT_LOGS_IN_APP_MGT_CONFIG = "disableLegacyAuditLogsInAppMgt";
+        public static final String ENABLE_V2_AUDIT_LOGS = "enableV2AuditLogs";
+        public static final String CREATE_APPLICATION = "create-application";
+        public static final String UPDATE_APPLICATION = "update-application";
+        public static final String DELETE_APPLICATION = "delete-application";
+    }
+
+    /**
+     * Grouping of constants related to database SP_APP table.
      */
     public static class ApplicationTableColumns {
 
@@ -131,9 +170,90 @@ public class ApplicationConstants {
         public static final String UUID = "UUID";
         public static final String IMAGE_URL = "IMAGE_URL";
         public static final String ACCESS_URL = "ACCESS_URL";
+        public static final String APP_ID = "APP_ID";
+        public static final String API_ID = "API_ID";
+        public static final String POLICY_ID = "POLICY_ID";
+        public static final String SCOPE_NAME = "SCOPE_NAME";
+        public static final String MAIN_APP_ID = "MAIN_APP_ID";
 
         private ApplicationTableColumns() {
 
+        }
+    }
+    
+    /**
+     * Standard inbound authentication protocols.
+     */
+    public static class StandardInboundProtocols {
+        
+        public static final String OAUTH2 = "oauth2";
+        public static final String WS_TRUST = "wstrust";
+        public static final String SAML2 = "samlsso";
+        public static final String PASSIVE_STS = "passivests";
+        
+        private StandardInboundProtocols() {
+        
+        }
+    }
+
+    /**
+     * Grouping of constants related to database SP_INBOUND_AUTH table.
+     */
+    public static class ApplicationInboundTableColumns {
+
+        public static final String INBOUND_AUTH_KEY = "INBOUND_AUTH_KEY";
+        public static final String INBOUND_AUTH_TYPE = "INBOUND_AUTH_TYPE";
+
+        private ApplicationInboundTableColumns() {
+
+        }
+    }
+
+    /**
+     * Enums for error messages.
+     */
+    public enum ErrorMessage {
+
+        ERROR_RETRIEVING_USER_BY_ID("65503", "Error occurred while retrieving user",
+                "Error occurred while retrieving user by userid: %s."),
+        NON_EXISTING_USER_ID("60504", "User not found",
+                "No user found for the given user-id: %s."),
+        ERROR_RETRIEVING_USERSTORE_MANAGER("65504", "Error retrieving userstore manager.",
+                "Error occurred while retrieving userstore manager."),
+        UNEXPECTED_ERROR("65006", "Unexpected processing error.",
+                "Server encountered an unexpected error when creating the application.");
+
+        private final String code;
+
+        private final String message;
+        private final String description;
+
+        ErrorMessage(String code, String message, String description) {
+
+            this.code = code;
+            this.message = message;
+            this.description = description;
+        }
+
+        public String getCode() {
+
+            return code;
+        }
+
+        public String getMessage() {
+
+            return message;
+        }
+
+        public String getDescription() {
+
+            return description;
+        }
+
+        @Override
+        public String toString() {
+
+            return code + " | " + message;
         }
     }
 }

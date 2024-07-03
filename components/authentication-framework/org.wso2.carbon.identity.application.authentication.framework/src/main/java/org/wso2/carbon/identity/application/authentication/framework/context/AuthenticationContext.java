@@ -1,7 +1,7 @@
 /*
- * Copyright (c) 2013, WSO2 Inc. (http://www.wso2.org) All Rights Reserved.
+ * Copyright (c) 2013-2023, WSO2 LLC. (http://www.wso2.com).
  *
- * WSO2 Inc. licenses this file to you under the Apache License,
+ * WSO2 LLC. licenses this file to you under the Apache License,
  * Version 2.0 (the "License"); you may not use this file except
  * in compliance with the License.
  * You may obtain a copy of the License at
@@ -20,6 +20,7 @@ package org.wso2.carbon.identity.application.authentication.framework.context;
 
 import org.apache.commons.collections.MapUtils;
 import org.apache.commons.lang.StringUtils;
+import org.apache.commons.lang3.SerializationUtils;
 import org.wso2.carbon.identity.application.authentication.framework.AuthenticatorStateInfo;
 import org.wso2.carbon.identity.application.authentication.framework.config.model.ExternalIdPConfig;
 import org.wso2.carbon.identity.application.authentication.framework.config.model.SequenceConfig;
@@ -57,14 +58,17 @@ public class AuthenticationContext extends MessageContext implements Serializabl
     private int currentStep;
     private SequenceConfig sequenceConfig;
     private ExternalIdPConfig externalIdP;
+    private String externalIdPResourceId;
     private boolean rememberMe;
     private String tenantDomain;
     private int retryCount;
     private int currentPostAuthHandlerIndex = 0;
     private Map<String, String> authenticatorProperties = new HashMap<>();
     private String serviceProviderName;
+    private String serviceProviderResourceId;
     private String contextIdIncludedQueryParams;
     private String currentAuthenticator;
+    private String redirectURL;
     private Map<String, Serializable> endpointParams = new HashMap<>();
 
     private boolean forceAuthenticate;
@@ -92,10 +96,10 @@ public class AuthenticationContext extends MessageContext implements Serializabl
     private String selectedAcr;
     private Map<String,  AuthenticatedIdPData> authenticatedIdPsOfApp = new HashMap<>();
 
-    /** The user/subject known at the latest authentication step */
+    /** The user/subject known at the latest authentication step. */
     private AuthenticatedUser lastAuthenticatedUser;
 
-    /** subject should be set by each authenticator */
+    /** subject should be set by each authenticator. */
     private AuthenticatedUser subject;
 
     /* Holds any (state) information that would be required by the authenticator
@@ -111,6 +115,15 @@ public class AuthenticationContext extends MessageContext implements Serializabl
     private String loginTenantDomain;
 
     private List<String> executedPostAuthHandlers = new ArrayList<>();
+
+    private final Map<String, List<String>> loggedOutAuthenticators = new HashMap<>();
+
+    private boolean sendToMultiOptionPage;
+
+    /**
+     * This attribute holds the context expiry time in epoch timestamp (nanoseconds).
+     */
+    private long expiryTimeNano = 0L;
 
     public String getCallerPath() {
         return callerPath;
@@ -284,6 +297,16 @@ public class AuthenticationContext extends MessageContext implements Serializabl
         this.serviceProviderName = serviceProviderName;
     }
 
+    public String getServiceProviderResourceId() {
+
+        return serviceProviderResourceId;
+    }
+
+    public void setServiceProviderResourceId(String serviceProviderResourceId) {
+
+        this.serviceProviderResourceId = serviceProviderResourceId;
+    }
+
     public boolean isForceAuthenticate() {
         return forceAuthenticate;
     }
@@ -366,6 +389,16 @@ public class AuthenticationContext extends MessageContext implements Serializabl
         this.currentAuthenticator = currentAuthenticator;
     }
 
+    public String getRedirectURL() {
+
+        return redirectURL;
+    }
+
+    public void setRedirectURL(String redirectURL) {
+
+        this.redirectURL = redirectURL;
+    }
+
     public boolean isPreviousSessionFound() {
         return previousSessionFound;
     }
@@ -434,6 +467,24 @@ public class AuthenticationContext extends MessageContext implements Serializabl
             requestedAcr = new ArrayList<>();
         }
         requestedAcr.add(acr);
+    }
+
+    /**
+     * Get value of sendToMultiOptionPage from the authentication context.
+     * @return boolean Whether the user should be redirected to the login page to retry the authentication.
+     */
+    public boolean isSendToMultiOptionPage() {
+
+        return sendToMultiOptionPage;
+    }
+
+    /**
+     * Add value of sendToMultiOptionPage to the authentication context.
+     * @param sendToMultiOptionPage Whether the user should be redirected to the login page to retry the authentication.
+     */
+    public void setSendToMultiOptionPage(boolean sendToMultiOptionPage) {
+
+        this.sendToMultiOptionPage = sendToMultiOptionPage;
     }
 
     /**
@@ -506,7 +557,7 @@ public class AuthenticationContext extends MessageContext implements Serializabl
     }
 
     /**
-     * Get parameter map for a specific authenticator
+     * Get parameter map for a specific authenticator.
      *
      * @param authenticatorName Authenticator name
      * @return Parameter map
@@ -717,12 +768,92 @@ public class AuthenticationContext extends MessageContext implements Serializabl
     }
 
     /**
-     * Sets the tenant domain where the user's session should be created
+     * Sets the tenant domain where the user's session should be created.
      *
      * @param loginTenantDomain the tenant domain where the user's session is created
      */
     public void setLoginTenantDomain(String loginTenantDomain) {
 
         this.loginTenantDomain = loginTenantDomain;
+    }
+
+    /**
+     * Add a logged out authenticator providing the IDP name. Method creates a new list and appends the
+     * authenticator if no entry for the IDP.
+     *
+     * @param idpName Identity provider name.
+     * @param  authenticatorName Authenticator name.
+     */
+    public void addLoggedOutAuthenticator(String idpName, String authenticatorName) {
+
+        if (loggedOutAuthenticators.containsKey(idpName)) {
+            loggedOutAuthenticators.get(idpName).add(authenticatorName);
+        } else {
+            List<String> authenticators = new ArrayList<>();
+            authenticators.add(authenticatorName);
+            loggedOutAuthenticators.put(idpName, authenticators);
+        }
+    }
+
+    /**
+     * Check whether the authenticator is already logged out.
+     *
+     * @param idpName Identity provider name.
+     * @param authenticatorName Authenticator name.
+     * @return true if the authenticator already logged out. False otherwise.
+     */
+    public boolean isLoggedOutAuthenticator(String idpName, String authenticatorName) {
+
+        if (loggedOutAuthenticators.containsKey(idpName)) {
+            return loggedOutAuthenticators.get(idpName).contains(authenticatorName);
+        }
+        return false;
+    }
+
+    /**
+     * Clears all currently logged out authenticators from the context.
+     */
+    public void clearLoggedOutAuthenticators() {
+
+        loggedOutAuthenticators.clear();
+    }
+
+    /**
+     * This method is used to set the resource id of the external IdP.
+     *
+     * @param resourceId resource id of the external idp
+     */
+    public void setExternalIdPResourceId(String resourceId) {
+
+        this.externalIdPResourceId = resourceId;
+    }
+
+    /**
+     * This method is used to get the resource id of the external idp.
+     *
+     * @return resource id of the external idp
+     */
+    public String getExternalIdPResourceId() {
+
+        return this.externalIdPResourceId;
+    }
+    
+    public long getExpiryTime() {
+
+        return expiryTimeNano;
+    }
+
+    public void setExpiryTime(long expiryTimeNano) {
+
+        this.expiryTimeNano = expiryTimeNano;
+    }
+
+    /**
+     * Create a deep copy of the initial authentication context.
+     *
+     * @return Clone of authentication context.
+     */
+    public Object clone () {
+        return SerializationUtils.clone(this);
     }
 }

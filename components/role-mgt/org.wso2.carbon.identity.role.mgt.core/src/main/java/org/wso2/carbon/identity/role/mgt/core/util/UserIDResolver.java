@@ -34,13 +34,14 @@ import java.util.List;
 import static org.wso2.carbon.identity.role.mgt.core.RoleConstants.Error.INVALID_REQUEST;
 import static org.wso2.carbon.identity.role.mgt.core.RoleConstants.Error.OPERATION_NOT_SUPPORTED;
 import static org.wso2.carbon.identity.role.mgt.core.RoleConstants.Error.UNEXPECTED_SERVER_ERROR;
+import static org.wso2.carbon.identity.role.mgt.core.RoleConstants.RoleTableColumns.USER_NOT_FOUND_ERROR_MESSAGE;
 
 /**
  * UserIDResolver Implementation of the {@link IDResolver} interface.
  */
 public class UserIDResolver implements IDResolver {
 
-    private Log log = LogFactory.getLog(UserIDResolver.class);
+    private static final Log LOG = LogFactory.getLog(UserIDResolver.class);
 
     @Override
     public String getNameByID(String id, String tenantDomain) throws IdentityRoleManagementException {
@@ -75,7 +76,7 @@ public class UserIDResolver implements IDResolver {
 
         String id = resolveIDFromUserName(name);
         if (id == null) {
-            String errorMessage = "A user doesn't exist with name: " + name + " in the tenantDomain: " + tenantDomain;
+            String errorMessage = String.format(USER_NOT_FOUND_ERROR_MESSAGE, name, tenantDomain);
             throw new IdentityRoleManagementClientException(INVALID_REQUEST.getCode(), errorMessage);
         }
         return id;
@@ -115,8 +116,8 @@ public class UserIDResolver implements IDResolver {
                 if (userStoreManager instanceof AbstractUserStoreManager) {
                     return ((AbstractUserStoreManager) userStoreManager).getUserNameFromUserID(userID);
                 }
-                if (log.isDebugEnabled()) {
-                    log.debug("Provided user store manager for the userID: " + userID + ", is not an instance of the "
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("Provided user store manager for the userID: " + userID + ", is not an instance of the "
                             + "AbstractUserStore manager");
                 }
                 throw new IdentityRoleManagementClientException(OPERATION_NOT_SUPPORTED.getCode(),
@@ -148,8 +149,8 @@ public class UserIDResolver implements IDResolver {
                 if (userStoreManager instanceof AbstractUserStoreManager) {
                     return ((AbstractUserStoreManager) userStoreManager).getUserIDFromUserName(userName);
                 }
-                if (log.isDebugEnabled()) {
-                    log.debug(
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug(
                             "Provided user store manager for the userName: " + userName + ", is not an instance of the "
                                     + "AbstractUserStore manager");
                 }

@@ -21,6 +21,9 @@ package org.wso2.carbon.identity.application.authentication.framework.internal.i
 import org.apache.commons.lang.StringUtils;
 import org.apache.juli.logging.Log;
 import org.apache.juli.logging.LogFactory;
+import org.json.JSONObject;
+import org.wso2.carbon.CarbonConstants;
+import org.wso2.carbon.context.CarbonContext;
 import org.wso2.carbon.identity.application.authentication.framework.ServerSessionManagementService;
 import org.wso2.carbon.identity.application.authentication.framework.cache.SessionContextCache;
 import org.wso2.carbon.identity.application.authentication.framework.context.SessionContext;
@@ -28,13 +31,20 @@ import org.wso2.carbon.identity.application.authentication.framework.internal.Fr
 import org.wso2.carbon.identity.application.authentication.framework.model.AuthenticatedUser;
 import org.wso2.carbon.identity.application.authentication.framework.util.FrameworkConstants;
 import org.wso2.carbon.identity.application.authentication.framework.util.FrameworkUtils;
+import org.wso2.carbon.identity.application.authentication.framework.util.SessionMgtConstants;
+import org.wso2.carbon.identity.central.log.mgt.utils.LoggerUtils;
+import org.wso2.carbon.identity.core.util.IdentityUtil;
+
+import static org.wso2.carbon.utils.CarbonUtils.isLegacyAuditLogsDisabled;
 
 /**
- * A service to terminate the sessions of federated users
+ * A service to terminate the sessions of federated users.
  */
 public class ServerSessionManagementServiceImpl implements ServerSessionManagementService {
 
     private static Log log = LogFactory.getLog(ServerSessionManagementServiceImpl.class);
+
+    private static final org.apache.commons.logging.Log AUDIT_LOG = CarbonConstants.AUDIT_LOG;
 
     @Override
     public boolean removeSession(String sessionId) {
@@ -50,18 +60,18 @@ public class ServerSessionManagementServiceImpl implements ServerSessionManageme
     }
 
     /**
-     * Terminate the session by sessionId
+     * Terminate the session by sessionId.
      *
-     * @param sessionContext - session context for the sessionId
-     * @param sessionId - Session id of the federated user
+     * @param sessionContext - session context for the sessionId.
+     * @param sessionId - Session id of the federated user.
      */
     private void terminateSession(SessionContext sessionContext, String sessionId) {
 
+        AuthenticatedUser authenticatedUser = new AuthenticatedUser();
         if (FrameworkServiceDataHolder.getInstance().getAuthnDataPublisherProxy() != null && FrameworkServiceDataHolder
                 .getInstance().getAuthnDataPublisherProxy().isEnabled(null) && sessionContext != null) {
 
             Object authenticatedUserObj = sessionContext.getProperty(FrameworkConstants.AUTHENTICATED_USER);
-            AuthenticatedUser authenticatedUser = new AuthenticatedUser();
             if (authenticatedUserObj != null) {
                 authenticatedUser = (AuthenticatedUser) authenticatedUserObj;
             }
@@ -80,5 +90,37 @@ public class ServerSessionManagementServiceImpl implements ServerSessionManageme
         } else {
             SessionContextCache.getInstance().clearCacheEntry(sessionId);
         }
+        addAuditLogs(sessionId, CarbonContext.getThreadLocalCarbonContext().getUsername(),
+                authenticatedUser.getUserName(), (String) tenantDomainObj, FrameworkUtils.getCorrelation(),
+                System.currentTimeMillis());
+    }
+
+    private void addAuditLogs(String sessionKey, String initiator, String authenticatedUser, String userTenantDomain,
+                              String traceId, Long terminatedTimestamp) {
+
+        if (isLegacyAuditLogsDisabled()) {
+            return;
+        }
+        String initiatedUser = null;
+        JSONObject auditData = new JSONObject();
+        auditData.put(SessionMgtConstants.SESSION_CONTEXT_ID, sessionKey);
+        auditData.put(SessionMgtConstants.AUTHENTICATED_USER_TENANT_DOMAIN, userTenantDomain);
+        auditData.put(SessionMgtConstants.TRACE_ID, traceId);
+        auditData.put(SessionMgtConstants.SESSION_TERMINATE_TIMESTAMP, terminatedTimestamp);
+
+        if (LoggerUtils.isLogMaskingEnable) {
+            auditData.put(SessionMgtConstants.AUTHENTICATED_USER, LoggerUtils.getMaskedContent(authenticatedUser));
+            if (StringUtils.isNotBlank(initiator) && StringUtils.isNotBlank(userTenantDomain)) {
+                initiatedUser = IdentityUtil.getInitiatorId(initiator, userTenantDomain);
+            }
+            if (StringUtils.isBlank(initiatedUser)) {
+                initiatedUser = LoggerUtils.getMaskedContent(initiator);
+            }
+        } else {
+            auditData.put(SessionMgtConstants.AUTHENTICATED_USER, authenticatedUser);
+            initiatedUser = initiator;
+        }
+        AUDIT_LOG.info(String.format(SessionMgtConstants.AUDIT_MESSAGE_TEMPLATE, initiatedUser,
+                SessionMgtConstants.TERMINATE_SESSION_ACTION, auditData, SessionMgtConstants.SUCCESS));
     }
 }

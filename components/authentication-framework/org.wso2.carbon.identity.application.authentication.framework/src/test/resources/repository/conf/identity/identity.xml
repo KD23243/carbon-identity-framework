@@ -54,6 +54,10 @@
                 and would be deleted during cleanup task -->
                 <CleanUpTimeout>40</CleanUpTimeout>
             </TempDataCleanup>
+            <SessionDataStorageOptimization>
+                <!-- Enabling session data storage optimization-->
+                <Enable>true</Enable>
+            </SessionDataStorageOptimization>
         </SessionDataPersist>
     </JDBCPersistenceManager>
 
@@ -619,9 +623,6 @@
 
     <EventListeners>
         <EventListener type="org.wso2.carbon.user.core.listener.UserOperationEventListener"
-                       name="org.wso2.carbon.user.mgt.workflow.userstore.UserStoreActionListener"
-                       orderId="10" enable="true"/>
-        <EventListener type="org.wso2.carbon.user.core.listener.UserOperationEventListener"
                        name="org.wso2.carbon.identity.mgt.IdentityMgtEventListener"
                        orderId="50" enable="false"/>
         <EventListener type="org.wso2.carbon.user.core.listener.UserOperationEventListener"
@@ -889,9 +890,6 @@
         <Resource context="(.*)/api/identity/oauth2/dcr/(.*)" secured="true" http-method="all">
             <Permissions>/permission/admin/manage/identity/applicationmgt</Permissions>
         </Resource>
-
-        <Resource context="(.*)/api/identity/oauth2/uma/resourceregistration/v1.0/(.*)" secured="true" http-method="all"/>
-        <Resource context="(.*)/api/identity/oauth2/uma/permission/v1.0/(.*)" secured="true" http-method="all"/>
 
         <Resource context="(.*)/api/identity/auth/v1.2/data(.*)" secured="true" http-method="all"/>
         <Resource context="(.*)/api/identity/auth/v1.2/context(.*)" secured="true" http-method="all"/>

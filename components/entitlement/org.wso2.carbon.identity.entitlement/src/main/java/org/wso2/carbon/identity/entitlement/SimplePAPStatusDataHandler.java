@@ -19,7 +19,10 @@ package org.wso2.carbon.identity.entitlement;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
+import org.wso2.carbon.CarbonConstants;
 import org.wso2.carbon.context.CarbonContext;
+import org.wso2.carbon.identity.central.log.mgt.utils.LoggerUtils;
+import org.wso2.carbon.identity.core.util.IdentityUtil;
 import org.wso2.carbon.identity.entitlement.common.EntitlementConstants;
 import org.wso2.carbon.identity.entitlement.dto.PublisherPropertyDTO;
 import org.wso2.carbon.identity.entitlement.dto.StatusHolder;
@@ -48,6 +51,9 @@ public class SimplePAPStatusDataHandler implements PAPStatusDataHandler {
     private static final int SEARCH_BY_USER = 0;
     private static final int SEARCH_BY_POLICY = 1;
     private static Log log = LogFactory.getLog(SimplePAPStatusDataHandler.class);
+    private static final Log AUDIT_LOG = CarbonConstants.AUDIT_LOG;
+    private static final String AUDIT_MESSAGE
+            = "Initiator : %s | Action : %s | Target : %s | Data : { %s } | Result : %s ";
     private int DEFAULT_MAX_RECODES = 50;
     private int maxRecodes;
 
@@ -173,7 +179,9 @@ public class SimplePAPStatusDataHandler implements PAPStatusDataHandler {
         try {
             registry = EntitlementServiceComponent.getRegistryService().
                     getGovernanceSystemRegistry(tenantId);
-            if (registry.resourceExists(path) && !isNew) {
+            boolean useLastStatusOnly = Boolean.parseBoolean(
+                    IdentityUtil.getProperty(EntitlementConstants.PROP_USE_LAST_STATUS_ONLY));
+            if (registry.resourceExists(path) && !isNew && !useLastStatusOnly) {
                 resource = registry.get(path);
                 String[] versions = registry.getVersions(path);
                 // remove all versions.  As we have no way to disable versioning for specific resource
@@ -199,8 +207,14 @@ public class SimplePAPStatusDataHandler implements PAPStatusDataHandler {
 
             if (resource != null && statusHolders != null && statusHolders.size() > 0) {
                 resource.setVersionableChange(false);
-                populateStatusProperties(statusHolders.toArray(new StatusHolder[statusHolders.size()]), resource);
+                StatusHolder[] statusHolderList = statusHolders.toArray(new StatusHolder[statusHolders.size()]);
+                populateStatusProperties(statusHolderList, resource);
                 registry.put(path, resource);
+                // When useLastStatusOnly is set to true, only the last action can be seen in the management console.
+                // Therefore print an audit log for every action.
+                if (useLastStatusOnly) {
+                    auditAction(statusHolderList);
+                }
             }
         } catch (RegistryException e) {
             log.error(e);
@@ -331,4 +345,29 @@ public class SimplePAPStatusDataHandler implements PAPStatusDataHandler {
         }
     }
 
+    private void auditAction(StatusHolder[] statusHolders) {
+
+        if (statusHolders != null) {
+            for (StatusHolder statusHolder : statusHolders) {
+                if (statusHolder != null) {
+                    String initiator = statusHolder.getUser();
+                    if (LoggerUtils.isLogMaskingEnable) {
+                        initiator = LoggerUtils.getMaskedContent(initiator);
+                    }
+                    String action = statusHolder.getType();
+                    String key = statusHolder.getKey();
+                    String target = statusHolder.getTarget();
+                    String targetAction = statusHolder.getTargetAction();
+                    String result = "FAILURE";
+                    if (statusHolder.isSuccess()) {
+                        result = "SUCCESS";
+                    }
+                    String auditData = String.format("\"Key\" : \"%s\" , \"Target Action\" : \"%s\"",
+                                                     key, targetAction);
+
+                    AUDIT_LOG.info(String.format(AUDIT_MESSAGE, initiator, action, target, auditData, result));
+                }
+            }
+        }
+    }
 }

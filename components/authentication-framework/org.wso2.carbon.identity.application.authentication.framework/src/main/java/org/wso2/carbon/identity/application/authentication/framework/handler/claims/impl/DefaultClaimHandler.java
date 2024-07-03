@@ -18,53 +18,67 @@
 
 package org.wso2.carbon.identity.application.authentication.framework.handler.claims.impl;
 
+import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.collections.MapUtils;
 import org.apache.commons.lang.StringUtils;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
-import org.wso2.carbon.CarbonException;
+import org.wso2.carbon.CarbonConstants;
 import org.wso2.carbon.base.MultitenantConstants;
-import org.wso2.carbon.core.util.AnonymousSessionUtil;
 import org.wso2.carbon.identity.application.authentication.framework.ApplicationAuthenticator;
 import org.wso2.carbon.identity.application.authentication.framework.config.builder.FileBasedConfigurationBuilder;
 import org.wso2.carbon.identity.application.authentication.framework.config.model.ApplicationConfig;
+import org.wso2.carbon.identity.application.authentication.framework.config.model.ExternalIdPConfig;
 import org.wso2.carbon.identity.application.authentication.framework.config.model.SequenceConfig;
 import org.wso2.carbon.identity.application.authentication.framework.config.model.StepConfig;
 import org.wso2.carbon.identity.application.authentication.framework.context.AuthenticationContext;
 import org.wso2.carbon.identity.application.authentication.framework.exception.FrameworkException;
 import org.wso2.carbon.identity.application.authentication.framework.exception.UserIdNotFoundException;
+import org.wso2.carbon.identity.application.authentication.framework.handler.approles.ApplicationRolesResolver;
 import org.wso2.carbon.identity.application.authentication.framework.handler.claims.ClaimHandler;
-import org.wso2.carbon.identity.application.authentication.framework.internal.FrameworkServiceComponent;
+import org.wso2.carbon.identity.application.authentication.framework.handler.sequence.impl.DefaultSequenceHandlerUtils;
 import org.wso2.carbon.identity.application.authentication.framework.internal.FrameworkServiceDataHolder;
 import org.wso2.carbon.identity.application.authentication.framework.model.AuthenticatedUser;
 import org.wso2.carbon.identity.application.authentication.framework.util.FrameworkConstants;
 import org.wso2.carbon.identity.application.authentication.framework.util.FrameworkUtils;
 import org.wso2.carbon.identity.application.common.model.ClaimConfig;
 import org.wso2.carbon.identity.application.common.model.ClaimMapping;
+import org.wso2.carbon.identity.application.common.model.IdPGroup;
+import org.wso2.carbon.identity.application.common.model.IdentityProvider;
 import org.wso2.carbon.identity.application.common.model.ServiceProvider;
 import org.wso2.carbon.identity.application.mgt.ApplicationConstants;
+import org.wso2.carbon.identity.base.IdentityConstants;
+import org.wso2.carbon.identity.central.log.mgt.utils.LogConstants;
+import org.wso2.carbon.identity.central.log.mgt.utils.LoggerUtils;
 import org.wso2.carbon.identity.claim.metadata.mgt.ClaimMetadataHandler;
 import org.wso2.carbon.identity.claim.metadata.mgt.exception.ClaimMetadataException;
 import org.wso2.carbon.identity.core.util.IdentityCoreConstants;
+import org.wso2.carbon.identity.core.util.IdentityUtil;
 import org.wso2.carbon.user.api.ClaimManager;
 import org.wso2.carbon.user.api.RealmConfiguration;
 import org.wso2.carbon.user.api.UserStoreException;
 import org.wso2.carbon.user.core.UserRealm;
 import org.wso2.carbon.user.core.UserStoreManager;
 import org.wso2.carbon.user.core.common.AbstractUserStoreManager;
+import org.wso2.carbon.user.core.service.RealmService;
+import org.wso2.carbon.user.core.util.UserCoreUtil;
+import org.wso2.carbon.utils.DiagnosticLog;
 
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.Optional;
 import java.util.Set;
 import java.util.function.Function;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 import static org.apache.commons.collections.CollectionUtils.isNotEmpty;
+import static org.wso2.carbon.identity.application.authentication.framework.util.FrameworkConstants.Config.SEND_ONLY_LOCALLY_MAPPED_ROLES_OF_IDP;
 import static org.wso2.carbon.identity.core.util.IdentityUtil.getLocalGroupsClaimURI;
 
 /**
@@ -76,6 +90,14 @@ public class DefaultClaimHandler implements ClaimHandler {
             FrameworkConstants.SERVICE_PROVIDER_SUBJECT_CLAIM_VALUE;
     private static final Log log = LogFactory.getLog(DefaultClaimHandler.class);
     private static volatile DefaultClaimHandler instance;
+    private static boolean returnOnlyMappedLocalRoles = false;
+
+    static {
+        if (IdentityUtil.getProperty(SEND_ONLY_LOCALLY_MAPPED_ROLES_OF_IDP) != null) {
+            returnOnlyMappedLocalRoles = Boolean
+                    .parseBoolean(IdentityUtil.getProperty(SEND_ONLY_LOCALLY_MAPPED_ROLES_OF_IDP));
+        }
+    }
 
     public static DefaultClaimHandler getInstance() {
         if (instance == null) {
@@ -129,6 +151,8 @@ public class DefaultClaimHandler implements ClaimHandler {
                                                         StepConfig stepConfig, AuthenticationContext context)
             throws FrameworkException {
 
+        ExternalIdPConfig externalIdPConfig = context.getExternalIdP();
+        SequenceConfig sequenceConfig = context.getSequenceConfig();
         ClaimMapping[] idPClaimMappings = context.getExternalIdP().getClaimMappings();
 
         if (idPClaimMappings == null) {
@@ -157,7 +181,8 @@ public class DefaultClaimHandler implements ClaimHandler {
         ApplicationAuthenticator authenticator = stepConfig.
                 getAuthenticatedAutenticator().getApplicationAuthenticator();
 
-        boolean useDefaultIdpDialect = context.getExternalIdP().useDefaultLocalIdpDialect();
+        boolean useDefaultIdpDialect = context.getExternalIdP().useDefaultLocalIdpDialect()
+                || idPClaimMappings.length == 0;
 
         // When null the local claim dialect will be used.
         String idPStandardDialect = null;
@@ -168,11 +193,68 @@ public class DefaultClaimHandler implements ClaimHandler {
         // Insert the runtime claims from the context. The priority is for runtime claims.
         remoteClaims.putAll(context.getRuntimeClaims());
 
+        // This handles the roles claim of the federated user.
+        List<String> federatedUserRolesUnmappedInclusive;
+        // This handles the mapped roles of the federated user using for the scope validation.
+        List<String> federatedUserRolesUnmappedExclusive = new ArrayList<>();
+        // This handle the sp mapped roles.
+        String serviceProviderMappedUserRoles;
+
+        boolean useAppAssociatedRoles = isAppRoleResolverExists() || !CarbonConstants.ENABLE_LEGACY_AUTHZ_RUNTIME;
+        boolean excludeSuperTenantForLegacyRolesClaim =
+                MultitenantConstants.SUPER_TENANT_DOMAIN_NAME.equals(context.getTenantDomain()) &&
+                Boolean.parseBoolean(IdentityUtil.getProperty(IdentityConstants.ALLOW_LEGACY_ROLE_CLAIM_BEHAVIOUR));
+        if (useAppAssociatedRoles && !excludeSuperTenantForLegacyRolesClaim) {
+            // This handles the idp group to local role assignments in the new authz flow.
+            String idpGroupClaimUri = FrameworkUtils.getEffectiveIdpGroupClaimUri(stepConfig, context);
+            boolean idpGroupsExists = isIdpGroupsExistForIDP(context.getExternalIdP().getIdentityProvider());
+            if (idpGroupsExists) {
+                federatedUserRolesUnmappedExclusive = getAppAssociatedRolesOfFederatedUser(stepConfig, context);
+                if (returnOnlyMappedLocalRoles) {
+                    federatedUserRolesUnmappedInclusive = federatedUserRolesUnmappedExclusive;
+                } else {
+                    List<String> unmappedIDPGroups = FrameworkUtils.getUnmappedIDPGroups(externalIdPConfig,
+                            remoteClaims, idpGroupClaimUri);
+                    Set<String> federatedUserRolesUnmappedInclusiveSet =
+                            new HashSet<>(federatedUserRolesUnmappedExclusive);
+                    federatedUserRolesUnmappedInclusiveSet.addAll(unmappedIDPGroups);
+                    federatedUserRolesUnmappedInclusive = new ArrayList<>(federatedUserRolesUnmappedInclusiveSet);
+                }
+            } else {
+                federatedUserRolesUnmappedInclusive = FrameworkUtils.getUnmappedIDPGroups(externalIdPConfig,
+                        remoteClaims, idpGroupClaimUri);
+            }
+            serviceProviderMappedUserRoles = getServiceProviderMappedUserRoles(sequenceConfig,
+                    federatedUserRolesUnmappedInclusive);
+        } else {
+            // This handles the idp role to local role mappings in legacy authz flow.
+            String idpRoleClaimUri = FrameworkUtils.getIdpRoleClaimUri(stepConfig, context);
+
+            if (MapUtils.isEmpty(externalIdPConfig.getRoleMappings())) {
+                federatedUserRolesUnmappedInclusive = getIdentityProviderMappedUserRoles(
+                        externalIdPConfig, remoteClaims, idpRoleClaimUri, false);
+            } else {
+                federatedUserRolesUnmappedInclusive = getIdentityProviderMappedUserRoles(externalIdPConfig,
+                        remoteClaims, idpRoleClaimUri, returnOnlyMappedLocalRoles);
+                federatedUserRolesUnmappedExclusive = getIdentityProviderMappedUserRoles(
+                        externalIdPConfig, remoteClaims, idpRoleClaimUri, true);
+            }
+            serviceProviderMappedUserRoles = getServiceProviderMappedUserRoles(sequenceConfig,
+                    federatedUserRolesUnmappedInclusive);
+
+            if (StringUtils.isNotBlank(idpRoleClaimUri)
+                    && StringUtils.isNotBlank(serviceProviderMappedUserRoles)) {
+                remoteClaims.put(idpRoleClaimUri, serviceProviderMappedUserRoles);
+            }
+            if (returnOnlyMappedLocalRoles && StringUtils.isBlank(serviceProviderMappedUserRoles)) {
+                remoteClaims.put(idpRoleClaimUri, serviceProviderMappedUserRoles);
+            }
+        }
+
         Map<String, String> localUnfilteredClaims = new HashMap<>();
         Map<String, String> spUnfilteredClaims = new HashMap<>();
         Map<String, String> spFilteredClaims = new HashMap<>();
         Map<String, String> localUnfilteredClaimsForNullValues = new HashMap<>();
-
 
         // claim mapping from local IDP to remote IDP : local-claim-uri / idp-claim-uri
 
@@ -186,6 +268,11 @@ public class DefaultClaimHandler implements ClaimHandler {
                     idPStandardDialect);
         } else if (idPClaimMappings.length > 0) {
             localToIdPClaimMap = FrameworkUtils.getClaimMappings(idPClaimMappings, true);
+            if (useLocalClaimDialectForClaimMappings() && enableMergingCustomClaimMappingsWithDefaultMappings()) {
+                localToIdPClaimMap = filterLocaltoIdPClaimMap(localToIdPClaimMap, remoteClaims.keySet());
+                getMergedLocalIdpClaimMappings(authenticator.getClaimDialectURI(),
+                        context.getTenantDomain(), localToIdPClaimMap, remoteClaims);
+            }
         } else {
             log.warn("Authenticator : " + authenticator.getFriendlyName() + " does not have " +
                      "a standard dialect and IdP : " + context.getExternalIdP().getIdPName() +
@@ -197,6 +284,29 @@ public class DefaultClaimHandler implements ClaimHandler {
         mapRemoteClaimsToLocalClaims(remoteClaims, localUnfilteredClaims, localToIdPClaimMap, defaultValuesForClaims,
                 localUnfilteredClaimsForNullValues);
 
+        // Insert the runtime claims from the context. The priority is for runtime claims.
+        localUnfilteredClaims.putAll(context.getRuntimeClaims());
+
+        if (useAppAssociatedRoles) {
+            // Setting the roles claim in localUnfilteredClaims.
+            // If current authenticator is OrganizationAuthenticator, role claim comes through remote claim should be
+            // used and roles claim should not be overridden.
+            if (!FrameworkConstants.ORGANIZATION_AUTHENTICATOR.equals(
+                    stepConfig.getAuthenticatedAutenticator().getApplicationAuthenticator().getName())) {
+                localUnfilteredClaims.put(FrameworkConstants.ROLES_CLAIM,
+                        StringUtils.isNotEmpty(serviceProviderMappedUserRoles) ?
+                                serviceProviderMappedUserRoles : StringUtils.EMPTY);
+            }
+            if (CollectionUtils.isNotEmpty(federatedUserRolesUnmappedExclusive)) {
+                Set<String> federatedUserRolesUnmappedInclusiveSetWithoutDomain =
+                        federatedUserRolesUnmappedExclusive.stream().map(UserCoreUtil::removeDomainFromName)
+                                .collect(Collectors.toSet());
+                localUnfilteredClaims.put(FrameworkConstants.APP_ROLES_CLAIM,
+                        String.join(FrameworkUtils.getMultiAttributeSeparator(),
+                                federatedUserRolesUnmappedInclusiveSetWithoutDomain));
+            }
+        }
+
         // claim mapping from local service provider to remote service provider.
         Map<String, String> localToSPClaimMappings = mapLocalSpClaimsToRemoteSPClaims(spStandardDialect, context,
                                                                                       spClaimMappings);
@@ -205,6 +315,8 @@ public class DefaultClaimHandler implements ClaimHandler {
         // <code>spUnfilteredClaims</code> and <code>spFilteredClaims</code>
         filterSPClaims(spRequestedClaimMappings, localUnfilteredClaims, spUnfilteredClaims, spFilteredClaims,
                        localToSPClaimMappings);
+
+        localUnfilteredClaims.remove(FrameworkConstants.APP_ROLES_CLAIM);
 
         if (stepConfig.isSubjectAttributeStep()) {
             if (MapUtils.isNotEmpty(localUnfilteredClaimsForNullValues)) {
@@ -237,6 +349,37 @@ public class DefaultClaimHandler implements ClaimHandler {
             }
         }
 
+        // Handle the IDP mapped user roles claim and app role claim.
+        if (useAppAssociatedRoles) {
+            if (CollectionUtils.isNotEmpty(federatedUserRolesUnmappedExclusive)) {
+                // Adding identity provider mapped user roles to be used in the federated user role resolver
+                // for scope validation.
+                spFilteredClaims.put(FrameworkConstants.IDP_MAPPED_USER_ROLES,
+                        String.join(FrameworkUtils.getMultiAttributeSeparator(), federatedUserRolesUnmappedExclusive));
+            } else {
+                // If current authenticator is OrganizationAuthenticator, then get the roles claim from
+                // the user attributes, and set it to the identity provider mapped user roles claim.
+                if (stepConfig.getAuthenticatedAutenticator().getApplicationAuthenticator()
+                        .getName().equals(FrameworkConstants.ORGANIZATION_AUTHENTICATOR)) {
+                    // Get roles claim from the user attributes.
+                    String rolesClaim = remoteClaims.get(localToIdPClaimMap.get(FrameworkConstants.ROLES_CLAIM));
+                    spFilteredClaims.put(FrameworkConstants.IDP_MAPPED_USER_ROLES, rolesClaim);
+                    spFilteredClaims.put(FrameworkConstants.USER_ORGANIZATION_CLAIM, stepConfig.getAuthenticatedUser()
+                            .getUserResidentOrganization());
+                    if (CarbonConstants.ENABLE_LEGACY_AUTHZ_RUNTIME) {
+                        String appRolesClaim = localToIdPClaimMap.get(FrameworkConstants.APP_ROLES_CLAIM);
+                        if (StringUtils.isNotBlank(appRolesClaim)) {
+                            String appRolesClaimValue = remoteClaims.get(appRolesClaim);
+                            if (StringUtils.isNotBlank(appRolesClaimValue)) {
+                                spFilteredClaims.putIfAbsent(appRolesClaim, appRolesClaimValue);
+                            }
+                        }
+                    }
+                } else {
+                    spFilteredClaims.put(FrameworkConstants.IDP_MAPPED_USER_ROLES, StringUtils.EMPTY);
+                }
+            }
+        }
 
         //Add multi Attributes separator with claims.it can be defined in user-mgt.xml file
         UserRealm realm = getUserRealm(MultitenantConstants.SUPER_TENANT_DOMAIN_NAME);
@@ -244,7 +387,112 @@ public class DefaultClaimHandler implements ClaimHandler {
         addMultiAttributeSeparatorToRequestedClaims(null, userStore, spFilteredClaims, realm);
 
         return spFilteredClaims;
+    }
 
+    /**
+     * Map the external IDP roles to local roles.
+     * If excludeUnmapped is true exclude unmapped roles.
+     * Otherwise include unmapped roles as well.
+     *
+     * @param externalIdPConfig     External IDP config.
+     * @param extAttributesValueMap External IDP attributes.
+     * @param idpRoleClaimUri       IDP role claim URI.
+     * @param excludeUnmapped       Whether to exclude unmapped roles.
+     * @return ArrayList<string> List of identity provider mapped user roles.
+     * @throws FrameworkException If an error occurred while getting identity provider mapped user roles.
+     */
+    protected List<String> getIdentityProviderMappedUserRoles(ExternalIdPConfig externalIdPConfig,
+                                                              Map<String, String> extAttributesValueMap,
+                                                              String idpRoleClaimUri,
+                                                              Boolean excludeUnmapped) throws FrameworkException {
+
+        return FrameworkUtils.getIdentityProvideMappedUserRoles(externalIdPConfig, extAttributesValueMap,
+                idpRoleClaimUri, excludeUnmapped);
+    }
+
+    /**
+     * Returns the app associated roles of the local user.
+     *
+     * @param stepConfig Step config.
+     * @param context    Authentication context.
+     * @return App associated roles of the local user.
+     * @throws FrameworkException If an error occurred while getting app associated roles.
+     */
+    protected List<String> getAppAssociatedRolesOfLocalUser(StepConfig stepConfig, AuthenticationContext context)
+            throws FrameworkException {
+
+        AuthenticatedUser authenticatedUser = stepConfig.getAuthenticatedUser();
+        ServiceProvider serviceProvider = context.getSequenceConfig().getApplicationConfig().getServiceProvider();
+        if (serviceProvider == null) {
+            return null;
+        }
+        /* Application and user should be in same tenant domain in order to match the application assigned roles for
+            the user. */
+        if (!StringUtils.equals(serviceProvider.getTenantDomain(), authenticatedUser.getTenantDomain())) {
+            return new ArrayList<>();
+        }
+        String applicationId = serviceProvider.getApplicationResourceId();
+        return FrameworkUtils.getAppAssociatedRolesOfLocalUser(authenticatedUser, applicationId);
+    }
+
+    /**
+     * Returns the app associated roles of the federated user.
+     *
+     * @param stepConfig Step config.
+     * @param context    Authentication context.
+     * @return App associated roles of the federated user.
+     * @throws FrameworkException If an error occurred while getting app associated roles.
+     */
+    protected List<String> getAppAssociatedRolesOfFederatedUser(StepConfig stepConfig, AuthenticationContext context)
+            throws FrameworkException {
+
+        AuthenticatedUser authenticatedUser = stepConfig.getAuthenticatedUser();
+        ServiceProvider serviceProvider = context.getSequenceConfig().getApplicationConfig().getServiceProvider();
+        if (serviceProvider == null) {
+            return null;
+        }
+        String applicationId = serviceProvider.getApplicationResourceId();
+
+        // Get the IDP group claim URI.
+        String idpGroupClaimUri = FrameworkUtils.getEffectiveIdpGroupClaimUri(stepConfig, context);
+        // If there is no groups claim mapping, no need to proceed.
+        if (StringUtils.isBlank(idpGroupClaimUri)) {
+            return new ArrayList<>();
+        }
+        return FrameworkUtils.getAppAssociatedRolesOfFederatedUser(authenticatedUser, applicationId, idpGroupClaimUri);
+    }
+
+    /**
+     * Check whether IDP group exists for the given IDP.
+     *
+     * @param identityProvider Identity provider.
+     * @return True if IDP group exists for the given IDP.
+     */
+    private boolean isIdpGroupsExistForIDP(IdentityProvider identityProvider) {
+
+        boolean idpGroupsExists = false;
+        if (identityProvider != null) {
+            IdPGroup[] idpGroups = identityProvider.getIdPGroupConfig();
+            if (idpGroups != null && idpGroups.length > 0) {
+                idpGroupsExists = true;
+            }
+        }
+        return idpGroupsExists;
+    }
+
+
+    /**
+     * Filter local claim mapping only if the claim value is there in the remote claim set.
+     *
+     * @param localToIdPClaimMap    Local to IdP claim mapping.
+     * @param keySet                Claim keys of remote claim set.
+     * @return  the local to idp claim mappings which comes in the remote claims.
+     */
+    private Map<String, String> filterLocaltoIdPClaimMap(Map<String, String> localToIdPClaimMap, Set<String> keySet) {
+
+        return new HashMap<>(localToIdPClaimMap.entrySet().stream()
+                .filter(claimMap -> keySet.contains(claimMap.getValue()))
+                .collect(Collectors.toMap(Entry::getKey, Entry::getValue)));
     }
 
     private void setMandatoryAndRequestedClaims(ApplicationConfig appConfig,
@@ -268,6 +516,28 @@ public class DefaultClaimHandler implements ClaimHandler {
         appConfig.setClaimMappings(claimMappings);
         appConfig.setRequestedClaims(requestedClaims);
         appConfig.setMandatoryClaims(mandatoryClaims);
+
+        if (LoggerUtils.isDiagnosticLogsEnabled()) {
+            Map<String, Object> params = new HashMap<>();
+            params.put(FrameworkConstants.LogConstants.SERVICE_PROVIDER, appConfig.getApplicationName());
+            Optional.ofNullable(requestedClaims.entrySet()).ifPresent(entries -> {
+                List<String> claimsList = entries.stream().map(Entry::getKey).collect(Collectors.toList());
+                params.put(FrameworkConstants.LogConstants.REQUESTED_CLAIMS, claimsList);
+            });
+            Optional.ofNullable(mandatoryClaims.entrySet()).ifPresent(entries -> {
+                List<String> claimsList = entries.stream().map(Entry::getKey).collect(Collectors.toList());
+                params.put(FrameworkConstants.LogConstants.MANDATORY_CLAIMS, claimsList);
+            });
+            if (LoggerUtils.isDiagnosticLogsEnabled()) {
+                LoggerUtils.triggerDiagnosticLogEvent(new DiagnosticLog.DiagnosticLogBuilder(
+                        FrameworkConstants.LogConstants.AUTHENTICATION_FRAMEWORK,
+                        FrameworkConstants.LogConstants.ActionIDs.HANDLE_CLAIM_MAPPING)
+                        .inputParam(LogConstants.InputKeys.APPLICATION_NAME, appConfig.getApplicationName())
+                        .resultMessage("Handling service provider requested claims.")
+                        .logDetailLevel(DiagnosticLog.LogDetailLevel.APPLICATION)
+                        .resultStatus(DiagnosticLog.ResultStatus.SUCCESS));
+            }
+        }
     }
 
     private void setClaimsWhenLocalClaimNotExists(Map<String, String> claimMappings,
@@ -305,11 +575,11 @@ public class DefaultClaimHandler implements ClaimHandler {
         localToSPClaimMappings.entrySet().stream().filter(entry -> StringUtils.isNotBlank(localUnfilteredClaims.
                 get(entry.getKey()))).forEach(entry -> {
                     spUnfilteredClaims.put(entry.getValue(), localUnfilteredClaims.get(entry.getKey()));
+                    // Add service provider requested claims to the filtered claims.
                     if (StringUtils.isNotBlank(spRequestedClaimMappings.get(entry.getValue()))) {
                         spFilteredClaims.put(entry.getValue(), localUnfilteredClaims.get(entry.getKey()));
                     }
-                }
-        );
+                });
 
     }
 
@@ -363,6 +633,40 @@ public class DefaultClaimHandler implements ClaimHandler {
         }
     }
 
+    /**
+     * Combine the Idp claim mapping with the default mapping.
+     *
+     * @param idPStandardDialect    Standard Idp dialect URI.
+     * @param tenantDomain          tenant domain.
+     * @param localToIdPClaimMap    default local to idp claim mapping.
+     * @param remoteClaims          Claims from idp.
+     * @return combined claim mappings.
+     * @throws FrameworkException   If an exception occurred in combining the idp claims with default claims.
+     */
+    private Map<String, String> getMergedLocalIdpClaimMappings(String idPStandardDialect, String tenantDomain,
+                                                                Map<String, String> localToIdPClaimMap,
+                                                                Map<String, String> remoteClaims) throws
+            FrameworkException {
+
+        if (idPStandardDialect == null) {
+            idPStandardDialect = ApplicationConstants.LOCAL_IDP_DEFAULT_CLAIM_DIALECT;
+        }
+        try {
+            Map<String, String> localToIdpClaimMappingWithStandardDialect =
+                    getClaimMappings(idPStandardDialect, remoteClaims.keySet(),
+                            tenantDomain, true);
+            localToIdPClaimMap.putAll(localToIdpClaimMappingWithStandardDialect.entrySet().stream()
+                    .filter(x -> !localToIdPClaimMap.containsKey(x.getKey()))
+                    .collect(Collectors.toMap(Entry::getKey, Entry::getValue)));
+
+            return localToIdPClaimMap;
+        } catch (FrameworkException e) {
+            throw new FrameworkException("Error occurred while getting all claim mappings from " +
+                    idPStandardDialect + " dialect for " +
+                    tenantDomain + " to handle federated claims", e);
+        }
+    }
+
     private Map<String, String> getLocalToIdpClaimMappingWithStandardDialect(Map<String, String> remoteClaims,
                                                                              ClaimMapping[] idPClaimMappings,
                                                                              AuthenticationContext context,
@@ -401,29 +705,17 @@ public class DefaultClaimHandler implements ClaimHandler {
     }
 
     /**
-     * @param applicationConfig
-     * @param locallyMappedUserRoles
-     * @return
+     * @param sequenceConfig         Sequence config.
+     * @param locallyMappedUserRoles String of user roles mapped according to Service Provider role mappings
+     *                               seperated by the multi attribute separator
+     * @return String of user roles mapped according to Service Provider role mappings.
      */
-    private static String getServiceProviderMappedUserRoles(ApplicationConfig applicationConfig,
-                                                            List<String> locallyMappedUserRoles, String claimSeparator)
-            throws FrameworkException {
+    protected String getServiceProviderMappedUserRoles(SequenceConfig sequenceConfig,
+                                                       List<String> locallyMappedUserRoles) {
 
-        Map<String, String> localToSpRoleMapping = applicationConfig.getRoleMappings();
-
-        if (MapUtils.isNotEmpty(localToSpRoleMapping)) {
-
-            localToSpRoleMapping.entrySet().stream().filter(roleMapping -> locallyMappedUserRoles.contains(roleMapping.
-                    getKey())).forEach(roleMapping -> {
-                        locallyMappedUserRoles.remove(roleMapping.getKey());
-                        locallyMappedUserRoles.add(roleMapping.getValue());
-
-                    }
-            );
-        }
-
-        return StringUtils.join(locallyMappedUserRoles, claimSeparator);
+        return DefaultSequenceHandlerUtils.getServiceProviderMappedUserRoles(sequenceConfig, locallyMappedUserRoles);
     }
+
 
     /**
      * @param context
@@ -478,6 +770,38 @@ public class DefaultClaimHandler implements ClaimHandler {
         // Retrieve all non-null user claim values against local claim uris.
         allLocalClaims = retrieveAllNunNullUserClaimValues(authenticatedUser, claimManager, appConfig, userStore);
 
+        boolean useAppAssociatedRoles = isAppRoleResolverExists() || !CarbonConstants.ENABLE_LEGACY_AUTHZ_RUNTIME;
+        boolean isRoleClaimRequested = (requestedClaimMappings.get(FrameworkConstants.ROLES_CLAIM) != null);
+        boolean isAppRoleClaimRequested = (requestedClaimMappings.get(FrameworkConstants.APP_ROLES_CLAIM) != null);
+        if (useAppAssociatedRoles && (isRoleClaimRequested || isAppRoleClaimRequested)) {
+            // Handle the role claim and app role claim for app associated roles.
+            String rolesClaimURI = getLocalGroupsClaimURI();
+            List<String> appAssociatedRoles = getAppAssociatedRolesOfLocalUser(stepConfig, context);
+            if (CollectionUtils.isNotEmpty(appAssociatedRoles)) {
+                if (isRoleClaimRequested) {
+                    allLocalClaims.put(rolesClaimURI, String.join(FrameworkUtils.getMultiAttributeSeparator(),
+                            appAssociatedRoles));
+                }
+                if (isAppRoleClaimRequested) {
+                    List<String> appAssociatedRolesWithoutDomain = appAssociatedRoles.stream()
+                            .map(UserCoreUtil::removeDomainFromName)
+                            .collect(Collectors.toList());;
+                    allLocalClaims.put(FrameworkConstants.APP_ROLES_CLAIM, String.join(FrameworkUtils
+                            .getMultiAttributeSeparator(), appAssociatedRolesWithoutDomain));
+                }
+            } else {
+                if (isRoleClaimRequested && !Boolean.parseBoolean(IdentityUtil.getProperty(
+                        IdentityConstants.ALLOW_LEGACY_ROLE_CLAIM_BEHAVIOUR))) {
+                    allLocalClaims.put(rolesClaimURI, String.join(FrameworkUtils.getMultiAttributeSeparator(),
+                            StringUtils.EMPTY));
+                }
+                if (isAppRoleClaimRequested) {
+                    allLocalClaims.put(FrameworkConstants.APP_ROLES_CLAIM, String.join(FrameworkUtils
+                            .getMultiAttributeSeparator(), StringUtils.EMPTY));
+                }
+            }
+        }
+
         // Insert the runtime claims from the context. The priority is for runtime claims.
         allLocalClaims.putAll(context.getRuntimeClaims());
 
@@ -509,7 +833,6 @@ public class DefaultClaimHandler implements ClaimHandler {
                 setSubjectClaimForLocalClaims(authenticatedUser, userStore, allSPMappedClaims, null, context);
             }
         }
-
 
         if (FrameworkConstants.RequestType.CLAIM_TYPE_OPENID.equals(context.getRequestType())) {
             spRequestedClaims = allSPMappedClaims;
@@ -655,8 +978,8 @@ public class DefaultClaimHandler implements ClaimHandler {
                         authenticatedUser.getLoggableUserId() + " in " + tenantDomain, e);
             }
         } catch (UserIdNotFoundException e) {
-            throw new FrameworkException("User id is not available for user: " + authenticatedUser.getLoggableUserId(),
-                    e);
+            throw new FrameworkException("User id is not available for user: " +
+                    authenticatedUser.getLoggableMaskedUserId(), e);
         }
         return allLocalClaims;
     }
@@ -687,10 +1010,11 @@ public class DefaultClaimHandler implements ClaimHandler {
     private UserRealm getUserRealm(String tenantDomain) throws FrameworkException {
         UserRealm realm;
         try {
-            realm = AnonymousSessionUtil.getRealmByTenantDomain(
-                    FrameworkServiceComponent.getRegistryService(),
-                    FrameworkServiceComponent.getRealmService(), tenantDomain);
-        } catch (CarbonException e) {
+            RealmService realmService = FrameworkServiceDataHolder.getInstance().getRealmService();
+            int tenantId = realmService.getTenantManager().getTenantId(tenantDomain);
+
+            realm = (UserRealm) realmService.getTenantUserRealm(tenantId);
+        } catch (UserStoreException e) {
             throw new FrameworkException("Error occurred while retrieving the Realm for " +
                                          tenantDomain + " to handle local claims", e);
         }
@@ -834,7 +1158,7 @@ public class DefaultClaimHandler implements ClaimHandler {
             log.error("Error occurred while retrieving " + subjectURI + " claim value for user "
                             + authenticatedUser.getLoggableUserId(), e);
         } catch (UserIdNotFoundException e) {
-            log.error("User id is not available for user: " + authenticatedUser.getLoggableUserId(), e);
+            log.error("User id is not available for user: " + authenticatedUser.getLoggableMaskedUserId(), e);
         }
     }
 
@@ -991,6 +1315,19 @@ public class DefaultClaimHandler implements ClaimHandler {
     }
 
     /**
+     * Checks if a configuration is available indicating to combine the custom claim
+     * dialect with the federated authenticator's dialect when a custom dialect
+     * claim mapping is used.
+     *
+     * @return True if both need to be combined.
+     */
+    private boolean enableMergingCustomClaimMappingsWithDefaultMappings() {
+
+        return FileBasedConfigurationBuilder.getInstance()
+                .isMergingCustomClaimMappingsWithDefaultClaimMappingsAllowed();
+    }
+
+    /**
      * Specially handle role claim values.
      *
      * @param context Authentication context.
@@ -1010,9 +1347,37 @@ public class DefaultClaimHandler implements ClaimHandler {
         }
     }
 
+    /**
+     * Resolve if the user is JIT provisioned based on the IdP type claim.
+     *
+     * @param allLocalClaims All local claims of the current authenticated user.
+     * @return True if the user is JIT provisioned.
+     */
+    private boolean isUserJITProvisioned(Map<String, String> allLocalClaims) {
+
+        if (allLocalClaims == null || allLocalClaims.isEmpty()) {
+            return false;
+        }
+        return allLocalClaims.entrySet().stream()
+                .anyMatch(entry -> entry.getKey().equals(FrameworkConstants.IDP_TYPE_CLAIM)
+                        && !FrameworkConstants.JSAttributes.JS_LOCAL_IDP.equalsIgnoreCase(entry.getValue()));
+    }
+
     private static boolean isRemoveUserDomainInRole(SequenceConfig sequenceConfig) {
 
         return !sequenceConfig.getApplicationConfig().getServiceProvider().getLocalAndOutBoundAuthenticationConfig().
                 isUseUserstoreDomainInRoles();
+    }
+
+    /**
+     * Check whether the app role resolver implementation exists.
+     *
+     * @return True if the app role resolver exists.
+     */
+    private boolean isAppRoleResolverExists() {
+
+        ApplicationRolesResolver appRolesResolver = FrameworkServiceDataHolder.getInstance()
+                .getHighestPriorityApplicationRolesResolver();
+        return (appRolesResolver != null);
     }
 }

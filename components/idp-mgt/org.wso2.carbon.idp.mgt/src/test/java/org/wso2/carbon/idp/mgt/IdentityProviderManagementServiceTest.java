@@ -18,8 +18,6 @@
 
 package org.wso2.carbon.idp.mgt;
 
-import org.mockito.Mock;
-import org.powermock.modules.testng.PowerMockTestCase;
 import org.testng.Assert;
 import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeMethod;
@@ -49,6 +47,8 @@ import org.wso2.carbon.identity.common.testng.WithKeyStore;
 import org.wso2.carbon.identity.common.testng.WithRealmService;
 import org.wso2.carbon.identity.common.testng.WithRegistry;
 import org.wso2.carbon.identity.core.util.IdentityDatabaseUtil;
+import org.wso2.carbon.identity.secret.mgt.core.IdPSecretsProcessor;
+import org.wso2.carbon.identity.secret.mgt.core.SecretsProcessor;
 import org.wso2.carbon.idp.mgt.internal.IdpMgtServiceComponentHolder;
 import org.wso2.carbon.idp.mgt.util.IdPManagementConstants;
 import org.wso2.carbon.idp.mgt.util.MetadataConverter;
@@ -63,13 +63,14 @@ import java.util.List;
 
 import javax.xml.stream.XMLStreamException;
 
-import static org.mockito.Matchers.anyObject;
-import static org.mockito.Matchers.anyString;
-import static org.powermock.api.mockito.PowerMockito.mock;
-import static org.powermock.api.mockito.PowerMockito.when;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 import static org.testng.Assert.assertNull;
 import static org.testng.Assert.assertThrows;
 import static org.wso2.carbon.base.MultitenantConstants.SUPER_TENANT_ID;
+
 import static java.lang.Boolean.TRUE;
 
 /**
@@ -77,22 +78,29 @@ import static java.lang.Boolean.TRUE;
  */
 @WithAxisConfiguration
 @WithCarbonHome
-@WithRegistry
 @WithRealmService(injectToSingletons = {IdpMgtServiceComponentHolder.class}, initUserStoreManager = true)
+@WithRegistry
 @WithH2Database(jndiName = "jdbc/WSO2IdentityDB", files = {"dbscripts/h2.sql"})
 @WithKeyStore
-public class IdentityProviderManagementServiceTest extends PowerMockTestCase {
+public class IdentityProviderManagementServiceTest {
 
-    @Mock
     MetadataConverter mockMetadataConverter;
     private IdentityProviderManagementService identityProviderManagementService;
 
     @BeforeMethod
     public void setUp() throws Exception {
 
+        mockMetadataConverter = mock(MetadataConverter.class);
         identityProviderManagementService = new IdentityProviderManagementService();
         List<MetadataConverter> metadataConverterList = Arrays.asList(mockMetadataConverter);
         IdpMgtServiceComponentHolder.getInstance().setMetadataConverters(metadataConverterList);
+
+        SecretsProcessor<IdentityProvider> identityProviderSecretsProcessor = mock(IdPSecretsProcessor.class);
+        IdpMgtServiceComponentHolder.getInstance().setIdPSecretsProcessorService(identityProviderSecretsProcessor);
+        when(identityProviderSecretsProcessor.encryptAssociatedSecrets(any())).thenAnswer(
+                invocation -> invocation.getArguments()[0]);
+        when(identityProviderSecretsProcessor.decryptAssociatedSecrets(any())).thenAnswer(
+                invocation -> invocation.getArguments()[0]);
     }
 
     @AfterMethod
@@ -875,8 +883,8 @@ public class IdentityProviderManagementServiceTest extends PowerMockTestCase {
         addResidentIdp();
         Assert.assertNull(identityProviderManagementService.getResidentIDPMetadata());
 
-        when(mockMetadataConverter.canHandle((FederatedAuthenticatorConfig) anyObject())).thenReturn(TRUE);
-        when(mockMetadataConverter.getMetadataString((FederatedAuthenticatorConfig) anyObject())).
+        when(mockMetadataConverter.canHandle(any(FederatedAuthenticatorConfig.class))).thenReturn(TRUE);
+        when(mockMetadataConverter.getMetadataString(any(FederatedAuthenticatorConfig.class))).
                 thenReturn("saml2sso");
 
         IdentityProvider newIdp = new IdentityProvider();
@@ -897,8 +905,8 @@ public class IdentityProviderManagementServiceTest extends PowerMockTestCase {
 
         addResidentIdp();
 
-        when(mockMetadataConverter.canHandle((FederatedAuthenticatorConfig) anyObject())).thenReturn(TRUE);
-        when(mockMetadataConverter.getMetadataString((FederatedAuthenticatorConfig) anyObject())).thenThrow
+        when(mockMetadataConverter.canHandle(any(FederatedAuthenticatorConfig.class))).thenReturn(TRUE);
+        when(mockMetadataConverter.getMetadataString(any(FederatedAuthenticatorConfig.class))).thenThrow
                 (IdentityProviderSAMLException.class);
 
         IdentityProvider newIdp = new IdentityProvider();
@@ -1078,8 +1086,8 @@ public class IdentityProviderManagementServiceTest extends PowerMockTestCase {
             "An Identity Provider Entity ID has already been registered with the name 'localhost' for tenant .*")
     public void testAddIdPWithResourceId() throws IdentityProviderManagementException, XMLStreamException {
 
-        when(mockMetadataConverter.canHandle((Property) anyObject())).thenReturn(TRUE);
-        when(mockMetadataConverter.getFederatedAuthenticatorConfig(anyObject(), anyObject())).thenReturn(
+        when(mockMetadataConverter.canHandle(any(Property.class))).thenReturn(TRUE);
+        when(mockMetadataConverter.getFederatedAuthenticatorConfig(any(), any())).thenReturn(
                 federatedAuthenticatorConfigWithIdpEntityIdPropertySet());
         identityProviderManagementService.addIdP(addIdPDataWithSameIdpEntityId("idp1"));
         identityProviderManagementService.addIdP(addIdPDataWithSameIdpEntityId("idp2"));
