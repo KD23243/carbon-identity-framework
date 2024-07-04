@@ -122,7 +122,13 @@ public class PDPConstants {
     public static final String SUBJECT_CATEGORY_DEFAULT =
             "urn:oasis:names:tc:xacml:1.0:subject-category:access-subject";
 
-    public static final String SUBJECT_ID_ROLE = "http://wso2.org/claims/role";
+    public static final String SUBJECT_ID_ROLE = "http://wso2.org/claims/roles";
+
+    public static  final String SERVICE_PROVIDER_NAME = "http://wso2.org/identity/sp/sp-name";
+
+    public static  final String SERVICE_PROVIDER_TENANT_DOMAIN = "http://wso2.org/identity/sp/sp-tenant-domain";
+
+    public  static  final String SERVICE_PROVIDER = "http://wso2.org/identity/sp";
 
     public static final String RULE_EFFECT_PERMIT = "Permit";
 
@@ -282,4 +288,7 @@ public class PDPConstants {
     public static final String USER_CATEGORY = "http://wso2.org/identity/user";
 
     public static final String USER_TYPE_ID = USER_CATEGORY + "/user-type";
+
+    public static final String STORE_POLICY_META_DATA = "PAP.Policy.Store.MetaData";
+
 }

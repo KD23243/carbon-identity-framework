@@ -1,7 +1,7 @@
 /*
- * Copyright (c) 2013, WSO2 Inc. (http://www.wso2.org) All Rights Reserved.
+ * Copyright (c) 2013-2023, WSO2 LLC. (http://www.wso2.com).
  *
- * WSO2 Inc. licenses this file to you under the Apache License,
+ * WSO2 LLC. licenses this file to you under the Apache License,
  * Version 2.0 (the "License"); you may not use this file except
  * in compliance with the License.
  * You may obtain a copy of the License at
@@ -18,7 +18,6 @@
 
 package org.wso2.carbon.identity.application.authentication.framework.util;
 
-import jdk.nashorn.api.scripting.ScriptObjectMirror;
 import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.collections.MapUtils;
@@ -31,15 +30,18 @@ import org.apache.http.client.utils.URIBuilder;
 import org.json.JSONObject;
 import org.slf4j.MDC;
 import org.wso2.carbon.CarbonConstants;
-import org.wso2.carbon.CarbonException;
+import org.wso2.carbon.base.ServerConfiguration;
 import org.wso2.carbon.claim.mgt.ClaimManagementException;
 import org.wso2.carbon.context.CarbonContext;
 import org.wso2.carbon.context.PrivilegedCarbonContext;
 import org.wso2.carbon.core.SameSiteCookie;
-import org.wso2.carbon.core.util.AnonymousSessionUtil;
+import org.wso2.carbon.core.util.CryptoException;
+import org.wso2.carbon.core.util.CryptoUtil;
 import org.wso2.carbon.identity.application.authentication.framework.ApplicationAuthenticator;
 import org.wso2.carbon.identity.application.authentication.framework.AuthenticationDataPublisher;
+import org.wso2.carbon.identity.application.authentication.framework.AuthenticationFlowHandler;
 import org.wso2.carbon.identity.application.authentication.framework.AuthenticatorFlowStatus;
+import org.wso2.carbon.identity.application.authentication.framework.FederatedApplicationAuthenticator;
 import org.wso2.carbon.identity.application.authentication.framework.cache.AuthenticationContextCache;
 import org.wso2.carbon.identity.application.authentication.framework.cache.AuthenticationContextCacheEntry;
 import org.wso2.carbon.identity.application.authentication.framework.cache.AuthenticationContextCacheKey;
@@ -60,14 +62,22 @@ import org.wso2.carbon.identity.application.authentication.framework.config.buil
 import org.wso2.carbon.identity.application.authentication.framework.config.model.ApplicationConfig;
 import org.wso2.carbon.identity.application.authentication.framework.config.model.AuthenticatorConfig;
 import org.wso2.carbon.identity.application.authentication.framework.config.model.ExternalIdPConfig;
+import org.wso2.carbon.identity.application.authentication.framework.config.model.OptimizedApplicationConfig;
 import org.wso2.carbon.identity.application.authentication.framework.config.model.SequenceConfig;
 import org.wso2.carbon.identity.application.authentication.framework.config.model.StepConfig;
-import org.wso2.carbon.identity.application.authentication.framework.config.model.graph.SerializableJsFunction;
+import org.wso2.carbon.identity.application.authentication.framework.config.model.graph.JsBaseGraphBuilderFactory;
+import org.wso2.carbon.identity.application.authentication.framework.config.model.graph.JsGenericGraphBuilderFactory;
+import org.wso2.carbon.identity.application.authentication.framework.config.model.graph.JsGraphBuilderFactory;
+import org.wso2.carbon.identity.application.authentication.framework.config.model.graph.graaljs.JsGraalGraphBuilderFactory;
+import org.wso2.carbon.identity.application.authentication.framework.config.model.graph.openjdk.nashorn.JsOpenJdkNashornGraphBuilderFactory;
 import org.wso2.carbon.identity.application.authentication.framework.context.AuthenticationContext;
 import org.wso2.carbon.identity.application.authentication.framework.context.SessionContext;
 import org.wso2.carbon.identity.application.authentication.framework.exception.FrameworkException;
 import org.wso2.carbon.identity.application.authentication.framework.exception.InvalidCredentialsException;
+import org.wso2.carbon.identity.application.authentication.framework.exception.PostAuthenticationFailedException;
 import org.wso2.carbon.identity.application.authentication.framework.exception.UserSessionException;
+import org.wso2.carbon.identity.application.authentication.framework.handler.approles.ApplicationRolesResolver;
+import org.wso2.carbon.identity.application.authentication.framework.handler.approles.exception.ApplicationRolesException;
 import org.wso2.carbon.identity.application.authentication.framework.handler.claims.ClaimHandler;
 import org.wso2.carbon.identity.application.authentication.framework.handler.claims.impl.DefaultClaimHandler;
 import org.wso2.carbon.identity.application.authentication.framework.handler.hrd.HomeRealmDiscoverer;
@@ -99,6 +109,7 @@ import org.wso2.carbon.identity.application.authentication.framework.store.UserS
 import org.wso2.carbon.identity.application.common.model.Claim;
 import org.wso2.carbon.identity.application.common.model.ClaimMapping;
 import org.wso2.carbon.identity.application.common.model.FederatedAuthenticatorConfig;
+import org.wso2.carbon.identity.application.common.model.IdPGroup;
 import org.wso2.carbon.identity.application.common.model.IdentityProvider;
 import org.wso2.carbon.identity.application.common.model.IdentityProviderProperty;
 import org.wso2.carbon.identity.application.common.model.Property;
@@ -106,8 +117,12 @@ import org.wso2.carbon.identity.application.common.model.ServiceProvider;
 import org.wso2.carbon.identity.application.mgt.ApplicationConstants;
 import org.wso2.carbon.identity.base.IdentityException;
 import org.wso2.carbon.identity.base.IdentityRuntimeException;
+import org.wso2.carbon.identity.central.log.mgt.utils.LoggerUtils;
 import org.wso2.carbon.identity.claim.metadata.mgt.ClaimMetadataHandler;
 import org.wso2.carbon.identity.claim.metadata.mgt.exception.ClaimMetadataException;
+import org.wso2.carbon.identity.claim.metadata.mgt.model.LocalClaim;
+import org.wso2.carbon.identity.configuration.mgt.core.exception.ConfigurationManagementException;
+import org.wso2.carbon.identity.configuration.mgt.core.model.Attribute;
 import org.wso2.carbon.identity.core.ServiceURLBuilder;
 import org.wso2.carbon.identity.core.URLBuilderException;
 import org.wso2.carbon.identity.core.model.CookieBuilder;
@@ -121,6 +136,7 @@ import org.wso2.carbon.identity.event.IdentityEventException;
 import org.wso2.carbon.identity.event.event.Event;
 import org.wso2.carbon.identity.event.services.IdentityEventService;
 import org.wso2.carbon.identity.multi.attribute.login.mgt.ResolvedUserResult;
+import org.wso2.carbon.identity.role.v2.mgt.core.exception.IdentityRoleManagementException;
 import org.wso2.carbon.identity.user.profile.mgt.association.federation.FederatedAssociationManager;
 import org.wso2.carbon.idp.mgt.IdentityProviderManagementException;
 import org.wso2.carbon.idp.mgt.IdentityProviderManager;
@@ -134,13 +150,20 @@ import org.wso2.carbon.user.core.claim.ClaimManager;
 import org.wso2.carbon.user.core.common.AbstractUserStoreManager;
 import org.wso2.carbon.user.core.config.UserStorePreferenceOrderSupplier;
 import org.wso2.carbon.user.core.constants.UserCoreClaimConstants;
+import org.wso2.carbon.user.core.service.RealmService;
 import org.wso2.carbon.user.core.util.UserCoreUtil;
+import org.wso2.carbon.utils.DiagnosticLog;
 import org.wso2.carbon.utils.multitenancy.MultitenantConstants;
 import org.wso2.carbon.utils.multitenancy.MultitenantUtils;
 
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.io.ObjectInputStream;
+import java.io.ObjectOutputStream;
 import java.io.Serializable;
 import java.io.UnsupportedEncodingException;
+import java.net.URI;
 import java.net.URISyntaxException;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
@@ -158,26 +181,44 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.StringJoiner;
 import java.util.TreeMap;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
+import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 import javax.script.ScriptEngine;
-import javax.script.ScriptException;
 import javax.servlet.http.Cookie;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 
+import static org.wso2.carbon.identity.application.authentication.framework.util.FrameworkConstants.AdaptiveAuthentication.AUTHENTICATOR_NAME_IN_AUTH_CONFIG;
+import static org.wso2.carbon.identity.application.authentication.framework.util.FrameworkConstants.Application.CONSOLE_APP;
 import static org.wso2.carbon.identity.application.authentication.framework.util.FrameworkConstants.Application.CONSOLE_APP_PATH;
+import static org.wso2.carbon.identity.application.authentication.framework.util.FrameworkConstants.Application.MY_ACCOUNT_APP;
 import static org.wso2.carbon.identity.application.authentication.framework.util.FrameworkConstants.Application.MY_ACCOUNT_APP_PATH;
 import static org.wso2.carbon.identity.application.authentication.framework.util.FrameworkConstants.CONTEXT_PROP_INVALID_EMAIL_USERNAME;
+import static org.wso2.carbon.identity.application.authentication.framework.util.FrameworkConstants.Config.AUTHENTICATION_CONTEXT_EXPIRY_VALIDATION;
+import static org.wso2.carbon.identity.application.authentication.framework.util.FrameworkConstants.Config.SKIP_LOCAL_USER_SEARCH_FOR_AUTHENTICATION_FLOW_HANDLERS;
 import static org.wso2.carbon.identity.application.authentication.framework.util.FrameworkConstants.Config.USER_SESSION_MAPPING_ENABLED;
 import static org.wso2.carbon.identity.application.authentication.framework.util.FrameworkConstants.InternalRoleDomains.APPLICATION_DOMAIN;
 import static org.wso2.carbon.identity.application.authentication.framework.util.FrameworkConstants.InternalRoleDomains.WORKFLOW_DOMAIN;
 import static org.wso2.carbon.identity.application.authentication.framework.util.FrameworkConstants.REQUEST_PARAM_SP;
+import static org.wso2.carbon.identity.application.authentication.framework.util.FrameworkConstants.RequestParams.CORRELATION_ID;
+import static org.wso2.carbon.identity.application.authentication.framework.util.FrameworkConstants.RequestParams.IS_IDF_INITIATED_FROM_AUTHENTICATOR;
 import static org.wso2.carbon.identity.application.authentication.framework.util.FrameworkConstants.RequestParams.USER_TENANT_DOMAIN_HINT;
+import static org.wso2.carbon.identity.application.authentication.framework.util.FrameworkConstants.USE_IDP_ROLE_CLAIM_AS_IDP_GROUP_CLAIM;
+import static org.wso2.carbon.identity.application.authentication.framework.util.FrameworkErrorConstants.ErrorMessages.ERROR_WHILE_GETTING_IDP_BY_NAME;
+import static org.wso2.carbon.identity.configuration.mgt.core.constant.ConfigurationConstants.ErrorMessages.ERROR_CODE_ATTRIBUTE_DOES_NOT_EXISTS;
+import static org.wso2.carbon.identity.configuration.mgt.core.constant.ConfigurationConstants.ErrorMessages.ERROR_CODE_RESOURCE_DOES_NOT_EXISTS;
+import static org.wso2.carbon.identity.core.util.IdentityCoreConstants.ORG_WISE_MULTI_ATTRIBUTE_SEPARATOR_ATTRIBUTE_NAME;
+import static org.wso2.carbon.identity.core.util.IdentityCoreConstants.ORG_WISE_MULTI_ATTRIBUTE_SEPARATOR_ENABLED;
+import static org.wso2.carbon.identity.core.util.IdentityCoreConstants.ORG_WISE_MULTI_ATTRIBUTE_SEPARATOR_RESOURCE_NAME;
+import static org.wso2.carbon.identity.core.util.IdentityCoreConstants.ORG_WISE_MULTI_ATTRIBUTE_SEPARATOR_RESOURCE_TYPE;
 import static org.wso2.carbon.identity.core.util.IdentityTenantUtil.isLegacySaaSAuthenticationEnabled;
 import static org.wso2.carbon.identity.core.util.IdentityUtil.getLocalGroupsClaimURI;
 
@@ -196,14 +237,25 @@ public class FrameworkUtils {
             .asList(FrameworkConstants.RequestType.CLAIM_TYPE_SAML_SSO, FrameworkConstants.OAUTH2);
 
     public static final String QUERY_SEPARATOR = "&";
-    private static final String EQUAL = "=";
+    public static final String EQUAL = "=";
     public static final String REQUEST_PARAM_APPLICATION = "application";
     private static final String ALREADY_WRITTEN_PROPERTY = "AlreadyWritten";
 
     private static final String CONTINUE_ON_CLAIM_HANDLING_ERROR = "ContinueOnClaimHandlingError";
     public static final String CORRELATION_ID_MDC = "Correlation-ID";
 
+    private static boolean isTenantIdColumnAvailableInFedAuthTable = false;
+    private static boolean isIdpIdColumnAvailableInFedAuthTable = false;
     public static final String ROOT_DOMAIN = "/";
+
+    private static final String HASH_CHAR = "#";
+    private static final String HASH_CHAR_ENCODED = "%23";
+    private static final String QUESTION_MARK = "?";
+
+    private static Boolean authenticatorNameInAuthConfigPreference;
+    private static final String OPENJDK_SCRIPTER_CLASS_NAME = "org.openjdk.nashorn.api.scripting.ScriptObjectMirror";
+    private static final String JDK_SCRIPTER_CLASS_NAME = "jdk.nashorn.api.scripting.ScriptObjectMirror";
+    private static final String GRAALJS_SCRIPTER_CLASS_NAME = "org.graalvm.polyglot.Context";
 
     private FrameworkUtils() {
     }
@@ -609,10 +661,28 @@ public class FrameworkUtils {
             URIBuilder uriBuilder = new URIBuilder(
                     ConfigurationFacade.getInstance().getAuthenticationEndpointRetryURL());
             if (status != null && statusMsg != null) {
-                uriBuilder.addParameter("status", status);
-                uriBuilder.addParameter("statusMsg", statusMsg);
+                if (context != null) {
+                    Map<String, String> failureData = new HashMap<>();
+                    failureData.put(FrameworkConstants.STATUS_PARAM, status);
+                    failureData.put(FrameworkConstants.STATUS_MSG_PARAM, statusMsg);
+                    failureData.put(FrameworkConstants.REQUEST_PARAM_SP, context.getServiceProviderName());
+                    AuthenticationError authenticationError = new AuthenticationError(failureData);
+                    String errorKey = UUID.randomUUID().toString();
+                    FrameworkUtils.addAuthenticationErrorToCache(errorKey, authenticationError,
+                            context.getTenantDomain());
+                    uriBuilder.addParameter(FrameworkConstants.REQUEST_PARAM_ERROR_KEY, errorKey);
+                    uriBuilder.addParameter(FrameworkConstants.REQUEST_PARAM_AUTH_FLOW_ID,
+                            context.getContextIdentifier());
+                } else {
+                    uriBuilder.addParameter(FrameworkConstants.STATUS_PARAM, status);
+                    uriBuilder.addParameter(FrameworkConstants.STATUS_MSG_PARAM, statusMsg);
+                }
             }
             request.setAttribute(FrameworkConstants.RequestParams.FLOW_STATUS, AuthenticatorFlowStatus.INCOMPLETE);
+            request.setAttribute(FrameworkConstants.IS_SENT_TO_RETRY, true);
+            if (status != null) {
+                request.setAttribute(FrameworkConstants.REQ_ATTR_RETRY_STATUS, status);
+            }
             if (context != null) {
                 if (IdentityTenantUtil.isTenantedSessionsEnabled()) {
                     uriBuilder.addParameter(USER_TENANT_DOMAIN_HINT, context.getUserTenantDomain());
@@ -621,6 +691,8 @@ public class FrameworkUtils {
                 if (!IdentityTenantUtil.isTenantQualifiedUrlsEnabled()) {
                     uriBuilder.addParameter(TENANT_DOMAIN, context.getTenantDomain());
                 }
+                String authFlowId = context.getContextIdentifier();
+                uriBuilder.addParameter(FrameworkConstants.REQUEST_PARAM_AUTH_FLOW_ID, authFlowId);
                 response.sendRedirect(uriBuilder.build().toString());
             } else {
                 response.sendRedirect(getRedirectURL(uriBuilder.build().toString(), request));
@@ -664,6 +736,10 @@ public class FrameworkUtils {
                 redirectURL = appendUri(redirectURL, REQUEST_PARAM_SP, spName);
             }
 
+            if (StringUtils.isNotBlank(MDC.get(CORRELATION_ID_MDC))) {
+                redirectURL = appendUri(redirectURL, CORRELATION_ID, MDC.get(CORRELATION_ID_MDC));
+            }
+
             if (!IdentityTenantUtil.isTenantQualifiedUrlsEnabled() && StringUtils.isNotBlank(tenantDomain)) {
                 redirectURL = appendUri(redirectURL, TENANT_DOMAIN, tenantDomain);
             }
@@ -675,6 +751,52 @@ public class FrameworkUtils {
         }
 
         return redirectURL;
+    }
+
+    /**
+     * This method is used to get the application name from the authentication context.
+     * @param context Authentication context.
+     * @return Application name.
+     */
+    public static Optional<String> getApplicationName(AuthenticationContext context) {
+
+        // Get the application name from the context directly if it's not null.
+        Optional<String> serviceProviderName = Optional.ofNullable(context)
+                .map(AuthenticationContext::getServiceProviderName);
+        if (serviceProviderName.isPresent()) {
+            return serviceProviderName;
+        }
+
+        // Get the application name from the sequence config if it's not available in the
+        // context.getServiceProviderName().
+        return Optional.ofNullable(context)
+                .map(AuthenticationContext::getSequenceConfig)
+                .map(SequenceConfig::getApplicationConfig)
+                .map(ApplicationConfig::getApplicationName);
+    }
+
+    /**
+     * This method is used to get the application resource id from the authentication context.
+     * @param context Authentication context.
+     * @return Application resource id.
+     */
+    public static Optional<String> getApplicationResourceId(AuthenticationContext context) {
+
+        // Get the application resource id from the optimized application config if it's available.
+        Optional<String> optimizedResourceId = Optional.ofNullable(context)
+                .map(AuthenticationContext::getSequenceConfig)
+                .map(SequenceConfig::getOptimizedApplicationConfig)
+                .map(OptimizedApplicationConfig::getServiceProviderResourceId);
+        if (optimizedResourceId.isPresent()) {
+            return optimizedResourceId;
+        }
+        // Get the application resource id from the sequence config if it's not available in the optimized
+        // application config
+        return Optional.ofNullable(context)
+                .map(AuthenticationContext::getSequenceConfig)
+                .map(SequenceConfig::getApplicationConfig)
+                .map(ApplicationConfig::getServiceProvider)
+                .map(ServiceProvider::getApplicationResourceId);
     }
 
     private static String getServiceProviderNameByReferer(HttpServletRequest request) {
@@ -735,6 +857,10 @@ public class FrameworkUtils {
         removeCookie(req, resp, FrameworkConstants.COMMONAUTH_COOKIE, SameSiteCookie.NONE);
     }
 
+    public static boolean isOrganizationQualifiedRequest() {
+
+        return PrivilegedCarbonContext.getThreadLocalCarbonContext().getOrganizationId() != null;
+    }
     /**
      * Remove the auth cookie in the tenanted path.
      *
@@ -744,7 +870,17 @@ public class FrameworkUtils {
      */
     public static void removeAuthCookie(HttpServletRequest req, HttpServletResponse resp, String tenantDomain) {
 
-        String path = FrameworkConstants.TENANT_CONTEXT_PREFIX + tenantDomain + "/";
+        String path;
+        if (isOrganizationQualifiedRequest()) {
+            path = FrameworkConstants.ORGANIZATION_CONTEXT_PREFIX + tenantDomain + "/";
+        } else {
+            if (!IdentityTenantUtil.isSuperTenantRequiredInUrl() &&
+                    MultitenantConstants.SUPER_TENANT_DOMAIN_NAME.equals(tenantDomain)) {
+                path = "/";
+            } else {
+                path = FrameworkConstants.TENANT_CONTEXT_PREFIX + tenantDomain + "/";
+            }
+        }
         removeCookie(req, resp, FrameworkConstants.COMMONAUTH_COOKIE, SameSiteCookie.NONE, path);
     }
 
@@ -1040,6 +1176,7 @@ public class FrameworkUtils {
 
         SessionContextCacheKey cacheKey = new SessionContextCacheKey(key);
         SessionContextCacheEntry cacheEntry = new SessionContextCacheEntry();
+        cacheEntry.setContextIdentifier(key);
 
         Map<String, SequenceConfig> seqData = sessionContext.getAuthenticatedSequences();
         if (seqData != null) {
@@ -1402,12 +1539,14 @@ public class FrameworkUtils {
 
         Map<String, String> remoteToLocalClaimMap = new HashMap<String, String>();
 
-        for (Entry<ClaimMapping, String> entry : claimMappings.entrySet()) {
-            ClaimMapping claimMapping = entry.getKey();
-            if (useLocalDialectAsKey) {
-                remoteToLocalClaimMap.put(claimMapping.getLocalClaim().getClaimUri(), entry.getValue());
-            } else {
-                remoteToLocalClaimMap.put(claimMapping.getRemoteClaim().getClaimUri(), entry.getValue());
+        if (claimMappings != null) {
+            for (Entry<ClaimMapping, String> entry : claimMappings.entrySet()) {
+                ClaimMapping claimMapping = entry.getKey();
+                if (useLocalDialectAsKey) {
+                    remoteToLocalClaimMap.put(claimMapping.getLocalClaim().getClaimUri(), entry.getValue());
+                } else {
+                    remoteToLocalClaimMap.put(claimMapping.getRemoteClaim().getClaimUri(), entry.getValue());
+                }
             }
         }
         return remoteToLocalClaimMap;
@@ -1512,8 +1651,9 @@ public class FrameworkUtils {
                             authenticatedIdPData.getIdpName().equals(authenticatorIdp)) {
 
                         if (FrameworkConstants.LOCAL.equals(authenticatedIdPData.getIdpName())) {
-                            if (authenticatedIdPData.isAlreadyAuthenticatedUsing(authenticatorName,
-                                    authenticatorConfig.getApplicationAuthenticator().getAuthMechanism())) {
+                            if (authenticatorConfig.getApplicationAuthenticator() != null &&
+                                    authenticatedIdPData.isAlreadyAuthenticatedUsing(authenticatorName,
+                                            authenticatorConfig.getApplicationAuthenticator().getAuthMechanism())) {
                                 idpAuthenticatorMap.put(authenticatorIdp, authenticatorConfig);
 
                                 if (log.isDebugEnabled()) {
@@ -1710,17 +1850,33 @@ public class FrameworkUtils {
         boolean configAvailable = FileBasedConfigurationBuilder.getInstance()
                 .isAuthEndpointRedirectParamsConfigAvailable();
 
+        List<String> queryParams;
+        String action;
         if (!configAvailable) {
-            return redirectUrl;
+            queryParams = Arrays.asList("loggedInUser", "ske");
+            action = "exclude";
+        } else {
+            queryParams = FileBasedConfigurationBuilder.getInstance()
+                    .getAuthEndpointRedirectParams();
+            action = FileBasedConfigurationBuilder.getInstance()
+                    .getAuthEndpointRedirectParamsAction();
         }
-        List<String> queryParams = FileBasedConfigurationBuilder.getInstance()
-                .getAuthEndpointRedirectParams();
-        String action = FileBasedConfigurationBuilder.getInstance()
-                .getAuthEndpointRedirectParamsAction();
 
         URIBuilder uriBuilder;
+
+        // Check if the URL is a fragment URL. Only the path of the URL is considered here.
+        boolean isAFragmentURL =
+                redirectUrl != null && redirectUrl.contains(HASH_CHAR) && redirectUrl.contains(QUESTION_MARK)
+                        && redirectUrl.indexOf(HASH_CHAR) < redirectUrl.indexOf(QUESTION_MARK);
         try {
-            uriBuilder = new URIBuilder(redirectUrl);
+            // Encode the hash character if the redirect URL is a fragmented URL.
+            if (isAFragmentURL) {
+                int splitIndex = redirectUrl.indexOf(QUESTION_MARK);
+                uriBuilder = new URIBuilder(redirectUrl.substring(0, splitIndex).replace(HASH_CHAR, HASH_CHAR_ENCODED)
+                        + redirectUrl.substring(splitIndex));
+            } else {
+                uriBuilder = new URIBuilder(redirectUrl);
+            }
         } catch (URISyntaxException e) {
             log.warn("Unable to filter redirect params for url." + redirectUrl, e);
             return redirectUrl;
@@ -1785,7 +1941,16 @@ public class FrameworkUtils {
         }
         uriBuilder.clearParameters();
         uriBuilder.setParameters(queryParamsList);
-        return uriBuilder.toString();
+        String redirectURLWithFilteredParams = uriBuilder.toString();
+
+        // Decode the hash character if the redirect URL is a fragmented URL.
+        if (isAFragmentURL) {
+            int splitIndex = redirectUrl.indexOf(QUESTION_MARK);
+            redirectURLWithFilteredParams =
+                    redirectURLWithFilteredParams.substring(0, splitIndex).replace(HASH_CHAR_ENCODED, HASH_CHAR)
+                            + redirectURLWithFilteredParams.substring(splitIndex);
+        }
+        return redirectURLWithFilteredParams;
     }
 
     public static boolean isRemoveAPIParamsOnConsume() {
@@ -2089,13 +2254,36 @@ public class FrameworkUtils {
     public static String getMultiAttributeSeparator() {
 
         String multiAttributeSeparator = null;
-        try {
-            multiAttributeSeparator = CarbonContext.getThreadLocalCarbonContext().getUserRealm().
-                    getRealmConfiguration().getUserStoreProperty(IdentityCoreConstants.MULTI_ATTRIBUTE_SEPARATOR);
-        } catch (UserStoreException e) {
-            log.warn("Error while retrieving MultiAttributeSeparator from UserRealm.");
-            if (log.isDebugEnabled()) {
-                log.debug("Error while retrieving MultiAttributeSeparator from UserRealm.", e);
+        if (Boolean.parseBoolean(IdentityUtil.getProperty(ORG_WISE_MULTI_ATTRIBUTE_SEPARATOR_ENABLED))) {
+            try {
+                Attribute configAttribute = FrameworkServiceDataHolder.getInstance().getConfigurationManager()
+                        .getAttribute(ORG_WISE_MULTI_ATTRIBUTE_SEPARATOR_RESOURCE_TYPE,
+                                ORG_WISE_MULTI_ATTRIBUTE_SEPARATOR_RESOURCE_NAME,
+                                ORG_WISE_MULTI_ATTRIBUTE_SEPARATOR_ATTRIBUTE_NAME);
+
+                if (configAttribute != null && StringUtils.isNotBlank(configAttribute.getValue())) {
+                    multiAttributeSeparator = configAttribute.getValue();
+                }
+            } catch (ConfigurationManagementException e) {
+                if (!ERROR_CODE_RESOURCE_DOES_NOT_EXISTS.getCode().equals(e.getErrorCode()) &&
+                        !ERROR_CODE_ATTRIBUTE_DOES_NOT_EXISTS.getCode().equals(e.getErrorCode())) {
+                    log.error(String.format("Error while retrieving the custom MultiAttributeSeparator " +
+                                    "for the tenant: %s. Error code: %s, Error message: %s",
+                            CarbonContext.getThreadLocalCarbonContext().getTenantDomain(), e.getErrorCode(),
+                            e.getMessage()));
+                }
+            }
+        }
+
+        if (StringUtils.isBlank(multiAttributeSeparator)) {
+            try {
+                multiAttributeSeparator = CarbonContext.getThreadLocalCarbonContext().getUserRealm().
+                        getRealmConfiguration().getUserStoreProperty(IdentityCoreConstants.MULTI_ATTRIBUTE_SEPARATOR);
+            } catch (UserStoreException e) {
+                log.error("Error while retrieving MultiAttributeSeparator from UserRealm.");
+                if (log.isDebugEnabled()) {
+                    log.debug("Error while retrieving MultiAttributeSeparator from UserRealm.", e);
+                }
             }
         }
 
@@ -2188,12 +2376,181 @@ public class FrameworkUtils {
     }
 
     /**
+     * Get the roles assigned to the federated user.
+     *
+     * @param externalIdPConfig     External IDP Config.
+     * @param extAttributesValueMap Attributes map.
+     * @param idpGroupClaimUri      IDP group claim URI.
+     * @param tenantDomain          Tenant domain.
+     * @return List of roles assigned to the federated user.
+     * @throws FrameworkException If an error occurred while getting the roles assigned to the federated user.
+     */
+    public static List<String> getAssignedRolesFromIdPGroups(ExternalIdPConfig externalIdPConfig,
+                                                             Map<String, String> extAttributesValueMap,
+                                                             String idpGroupClaimUri, String tenantDomain)
+            throws FrameworkException {
+
+        if (idpGroupClaimUri == null) {
+            // Since idpGroupClaimUri is not defined cannot do role assignment.
+            if (log.isDebugEnabled()) {
+                log.debug("Group claim uri is not configured for the external IDP: " + externalIdPConfig.getIdPName()
+                        + ", in Domain: " + externalIdPConfig.getDomain() + ".");
+            }
+            return new ArrayList<>();
+        }
+        String idpGroupAttrValue = null;
+        if (extAttributesValueMap != null) {
+            idpGroupAttrValue = extAttributesValueMap.get(idpGroupClaimUri);
+        }
+        List<String> idpGroupValues;
+        String federatedIDPGroupClaimAttributeSeparator;
+        if (idpGroupAttrValue != null) {
+            if (IdentityUtil.getProperty(FrameworkConstants.FEDERATED_IDP_GROUP_CLAIM_VALUE_SEPARATOR) != null) {
+                federatedIDPGroupClaimAttributeSeparator = IdentityUtil.getProperty(FrameworkConstants
+                        .FEDERATED_IDP_GROUP_CLAIM_VALUE_SEPARATOR);
+                if (log.isDebugEnabled()) {
+                    log.debug("The IDP side group claim value separator is configured as : "
+                            + federatedIDPGroupClaimAttributeSeparator);
+                }
+            } else {
+                federatedIDPGroupClaimAttributeSeparator = FrameworkUtils.getMultiAttributeSeparator();
+            }
+
+            idpGroupValues = Arrays.asList(idpGroupAttrValue.split(federatedIDPGroupClaimAttributeSeparator));
+        } else {
+            // No identity provider group values found.
+            if (log.isDebugEnabled()) {
+                log.debug("No group attribute value has received from the external IDP: "
+                        + externalIdPConfig.getIdPName() + ", in Domain: " + externalIdPConfig.getDomain() + ".");
+            }
+            return new ArrayList<>();
+        }
+        IdPGroup[] possibleIDPGroups = externalIdPConfig.getIdentityProvider().getIdPGroupConfig();
+        List<String> idpGroupIds =  new ArrayList<>();
+        for (IdPGroup idpGroup : possibleIDPGroups) {
+            if (idpGroup.getIdpGroupId() != null && idpGroupValues.contains(idpGroup.getIdpGroupName())) {
+                idpGroupIds.add(idpGroup.getIdpGroupId());
+            }
+        }
+        try {
+            return FrameworkServiceDataHolder.getInstance().getRoleManagementServiceV2()
+                    .getRoleIdListOfIdpGroups(idpGroupIds, tenantDomain);
+        } catch (IdentityRoleManagementException e) {
+            throw new FrameworkException("Error while getting role ids of idp groups.", e);
+        }
+    }
+
+    /**
+     * Get the unmapped IDP groups from the IDP group attribute value.
+     *
+     * @param externalIdPConfig External IDP Config.
+     * @param remoteClaims      Remote claims.
+     * @param idpGroupClaimUri  IDP group claim URI.
+     * @return Unmapped IDP groups.
+     */
+    public static List<String> getUnmappedIDPGroups(ExternalIdPConfig externalIdPConfig,
+                                                    Map<String, String> remoteClaims, String idpGroupClaimUri) {
+
+        if (StringUtils.isBlank(idpGroupClaimUri) || MapUtils.isEmpty(remoteClaims) || externalIdPConfig == null) {
+            return Collections.emptyList();
+        }
+        IdentityProvider identityProvider = externalIdPConfig.getIdentityProvider();
+        if (identityProvider == null) {
+            return Collections.emptyList();
+        }
+        IdPGroup[] possibleIdPGroups = identityProvider.getIdPGroupConfig();
+        if (ArrayUtils.isEmpty(possibleIdPGroups)) {
+            return Collections.emptyList();
+        }
+        String idpGroupValueAttr = remoteClaims.get(idpGroupClaimUri);
+        if (StringUtils.isBlank(idpGroupValueAttr)) {
+            return Collections.emptyList();
+        }
+
+        String idpGroupValueSeparator = getIdpGroupClaimValueSeparator();
+        String[] idpGroupValues = idpGroupValueAttr.split(Pattern.quote(idpGroupValueSeparator));
+        List<String> possibleIdPGroupNames = Arrays.stream(possibleIdPGroups)
+                .map(IdPGroup::getIdpGroupName)
+                .collect(Collectors.toList());
+        return Arrays.stream(idpGroupValues)
+                .filter(idpGroup -> !possibleIdPGroupNames.contains(idpGroup))
+                .collect(Collectors.toList());
+    }
+
+    /**
+     * Get app associated roles of local user.
+     *
+     * @param authenticatedUser Authenticated user.
+     * @param applicationId     Application ID.
+     * @return List of app associated roles of local user.
+     * @throws FrameworkException If an error occurred while getting app associated roles of local user.
+     */
+    public static List<String> getAppAssociatedRolesOfLocalUser(AuthenticatedUser authenticatedUser,
+                                                                String applicationId) throws FrameworkException {
+
+        ApplicationRolesResolver appRolesResolver = FrameworkServiceDataHolder.getInstance()
+                .getHighestPriorityApplicationRolesResolver();
+        if (appRolesResolver == null) {
+            log.debug("No app associated roles resolver found.");
+            // Return empty list if no app associated roles resolver is available.
+            return new ArrayList<>();
+        }
+        String[] appAssociatedRolesOfUser;
+        try {
+            appAssociatedRolesOfUser = appRolesResolver.getAppAssociatedRolesOfLocalUser(authenticatedUser,
+                    applicationId);
+            if (appAssociatedRolesOfUser == null) {
+                return new ArrayList<>();
+            }
+            return Arrays.asList(appAssociatedRolesOfUser);
+        } catch (ApplicationRolesException e) {
+            throw new FrameworkException("Error while retrieving app associated roles for user: " +
+                    authenticatedUser.getLoggableUserId() + " and application: " + applicationId, e);
+        }
+    }
+
+    /**
+     * Get app associated roles of federated user.
+     *
+     * @param authenticatedUser Authenticated user.
+     * @param applicationId     Application ID.
+     * @param idpGroupClaimUri  IDP group claim URI.
+     * @return List of app associated roles of federated user.
+     * @throws FrameworkException If an error occurred while getting app associated roles of federated user.
+     */
+    public static List<String> getAppAssociatedRolesOfFederatedUser(AuthenticatedUser authenticatedUser,
+                                                                    String applicationId, String idpGroupClaimUri)
+            throws FrameworkException {
+
+        ApplicationRolesResolver appRolesResolver = FrameworkServiceDataHolder.getInstance()
+                .getHighestPriorityApplicationRolesResolver();
+        if (appRolesResolver == null) {
+            log.debug("No app associated roles resolver found.");
+            // Return empty list if no app associated roles resolver is available.
+            return new ArrayList<>();
+        }
+        String[] appAssociatedRolesOfFedUser;
+        try {
+            appAssociatedRolesOfFedUser = appRolesResolver.getAppAssociatedRolesOfFederatedUser(authenticatedUser,
+                    applicationId, idpGroupClaimUri);
+            if (appAssociatedRolesOfFedUser == null) {
+                return new ArrayList<>();
+            }
+            return Arrays.asList(appAssociatedRolesOfFedUser);
+        } catch (ApplicationRolesException e) {
+            throw new FrameworkException("Error while retrieving app associated roles for user: " +
+                    authenticatedUser.getLoggableUserId() + " and application: " + applicationId, e);
+        }
+    }
+
+    /**
      * To get the role claim uri of an IDP.
      *
      * @param externalIdPConfig Relevant external IDP Config.
      * @return idp role claim URI.
      */
     public static String getIdpRoleClaimUri(ExternalIdPConfig externalIdPConfig) {
+
         // get external identity provider role claim uri.
         String idpRoleClaimUri = externalIdPConfig.getRoleClaimUri();
         if (idpRoleClaimUri == null || idpRoleClaimUri.isEmpty()) {
@@ -2208,9 +2565,143 @@ public class FrameworkUtils {
                         return mapping.getRemoteClaim().getClaimUri();
                     }
                 }
+            } else {
+                // Setting the default role claim uri.
+                idpRoleClaimUri = getLocalGroupsClaimURI();
             }
         }
         return idpRoleClaimUri;
+    }
+
+    /**
+     * Get the Role Claim Uri in IDPs dialect.
+     *
+     * @param stepConfig Relevant stepConfig.
+     * @param context Relevant AuthenticationContext.
+     * @return Role Claim Uri as String.
+     * @throws FrameworkException
+     */
+    public static String getIdpRoleClaimUri(StepConfig stepConfig, AuthenticationContext context)
+            throws FrameworkException {
+
+        String idpRoleClaimUri = getIdpRoleClaimUri(context.getExternalIdP());
+        return FrameworkUtils.getMappedIdpRoleClaimUri(idpRoleClaimUri, stepConfig, context);
+    }
+
+    /**
+     * Returns the group claim uri of an IDP.
+     *
+     * @param externalIdPConfig Relevant external IDP Config.
+     * @return IDP group claim URI.
+     */
+    public static String getIdpGroupClaimUri(ExternalIdPConfig externalIdPConfig) {
+
+        return getIdpGroupClaimUri(externalIdPConfig.getClaimMappings());
+    }
+
+    /**
+     * Returns the group claim uri of an IDP.
+     *
+     * @param claimMappings Claim mappings.
+     * @return IDP group claim URI.
+     */
+    public static String getIdpGroupClaimUri(ClaimMapping[] claimMappings) {
+
+        return Arrays.stream(claimMappings)
+                .filter(claimMap ->
+                        FrameworkConstants.GROUPS_CLAIM.equals(claimMap.getLocalClaim().getClaimUri()))
+                .map(claimMap -> claimMap.getRemoteClaim().getClaimUri())
+                .findFirst()
+                .orElse(null);
+    }
+
+    /**
+     * Returns IDP group claim uri.
+     *
+     * @param stepConfig Step config.
+     * @param context    Authentication context.
+     * @return IDP group claim uri.
+     */
+    public static String getIdpGroupClaimUri(StepConfig stepConfig, AuthenticationContext context) {
+
+        String idpGroupMappingURI = FrameworkConstants.GROUPS_CLAIM;
+
+        ExternalIdPConfig externalIdPConfig = context.getExternalIdP();
+        ClaimMapping[] claimMappings = externalIdPConfig.getClaimMappings();
+
+        // Return the IDP group claim uri if claim mapping is available for groups claim.
+        if (claimMappings != null && claimMappings.length > 0) {
+            for (ClaimMapping mapping : claimMappings) {
+                if (FrameworkConstants.GROUPS_CLAIM.equals(mapping.getLocalClaim().getClaimUri())
+                        && mapping.getRemoteClaim() != null) {
+                    return mapping.getRemoteClaim().getClaimUri();
+                }
+            }
+        }
+
+        ApplicationAuthenticator authenticator = stepConfig.
+                getAuthenticatedAutenticator().getApplicationAuthenticator();
+
+        boolean useDefaultIdpDialect = externalIdPConfig.useDefaultLocalIdpDialect();
+        boolean useLocalClaimDialectForClaimMappings =
+                FileBasedConfigurationBuilder.getInstance().isCustomClaimMappingsForAuthenticatorsAllowed();
+        boolean mergingCustomClaimMappingsWithDefaultClaimMappingsAllowed = useLocalClaimDialectForClaimMappings &&
+                FileBasedConfigurationBuilder.getInstance()
+                        .isMergingCustomClaimMappingsWithDefaultClaimMappingsAllowed();
+
+        Map<String, String> carbonToStandardClaimMapping = new HashMap<>();
+
+        // Check whether to use the default dialect.
+        if (useDefaultIdpDialect || !useLocalClaimDialectForClaimMappings ||
+                mergingCustomClaimMappingsWithDefaultClaimMappingsAllowed) {
+            String idPStandardDialect = authenticator.getClaimDialectURI();
+            try {
+                if (StringUtils.isNotBlank(idPStandardDialect)) {
+                    carbonToStandardClaimMapping = ClaimMetadataHandler.getInstance()
+                            .getMappingsMapFromOtherDialectToCarbon(idPStandardDialect, null,
+                                    context.getTenantDomain(), false);
+                }
+                for (Entry<String, String> entry : carbonToStandardClaimMapping.entrySet()) {
+                    if (StringUtils.isNotEmpty(idpGroupMappingURI) &&
+                            idpGroupMappingURI.equalsIgnoreCase(entry.getValue())) {
+                        idpGroupMappingURI = entry.getKey();
+                    }
+                }
+            } catch (ClaimMetadataException e) {
+                if (log.isDebugEnabled()) {
+                    log.debug("Error in getting the mapping between idps and standard dialect.Thus returning the " +
+                            "unmapped GroupClaimUri: " + idpGroupMappingURI, e);
+                }
+            }
+        } else {
+            if (log.isDebugEnabled()) {
+                log.debug("Custom claim mappings are enabled and no custom mapping configured for groups claim. " +
+                        "Thus setting GroupClaimUri to empty string.");
+            }
+            idpGroupMappingURI = StringUtils.EMPTY;
+        }
+        return idpGroupMappingURI;
+    }
+
+    /**
+     * Returns effective IDP group claim uri.
+     * If USE_LOCAL_ROLE_CLAIM_FOR_IDP_GROUP_CLAIM_MAPPING is true, returns the IDP role claim uri.
+     * Otherwise, returns the IDP group claim uri.
+     *
+     * @param stepConfig Step config.
+     * @param context    Authentication context.
+     * @return Effective IDP group claim uri.
+     * @throws FrameworkException If an error occurred while getting the effective IDP group claim uri.
+     */
+    public static String getEffectiveIdpGroupClaimUri(StepConfig stepConfig, AuthenticationContext context)
+            throws FrameworkException {
+
+        boolean useLocalRoleClaimForIDPGroupMapping = Boolean.parseBoolean(
+                IdentityUtil.getProperty(USE_IDP_ROLE_CLAIM_AS_IDP_GROUP_CLAIM));
+        if (useLocalRoleClaimForIDPGroupMapping) {
+            return getIdpRoleClaimUri(stepConfig, context);
+        }
+        return getIdpGroupClaimUri(stepConfig, context);
     }
 
     /**
@@ -2235,11 +2726,15 @@ public class FrameworkUtils {
         // Read value from file based configuration.
         boolean useLocalClaimDialectForClaimMappings =
                 FileBasedConfigurationBuilder.getInstance().isCustomClaimMappingsForAuthenticatorsAllowed();
+        boolean mergingCustomClaimMappingsWithDefaultClaimMappingsAllowed = useLocalClaimDialectForClaimMappings &&
+                FileBasedConfigurationBuilder.getInstance()
+                        .isMergingCustomClaimMappingsWithDefaultClaimMappingsAllowed();
 
         Map<String, String> carbonToStandardClaimMapping = new HashMap<>();
 
-        // Check whether to use the default dialect or custom dialect.
-        if (useDefaultIdpDialect || useLocalClaimDialectForClaimMappings) {
+        // Check whether to use the default dialect.
+        if (useDefaultIdpDialect || !useLocalClaimDialectForClaimMappings ||
+                mergingCustomClaimMappingsWithDefaultClaimMappingsAllowed) {
             String idPStandardDialect = authenticator.getClaimDialectURI();
             try {
                 if (StringUtils.isNotBlank(idPStandardDialect)) {
@@ -2250,7 +2745,8 @@ public class FrameworkUtils {
                 }
                 // check for role claim uri in the idaps dialect.
                 for (Entry<String, String> entry : carbonToStandardClaimMapping.entrySet()) {
-                    if (idpRoleMappingURI.equalsIgnoreCase(entry.getValue())) {
+                    if (StringUtils.isNotEmpty(idpRoleMappingURI) && 
+                        idpRoleMappingURI.equalsIgnoreCase(entry.getValue())) {
                         idpRoleMappingURI = entry.getKey();
                     }
                 }
@@ -2288,6 +2784,25 @@ public class FrameworkUtils {
             }
         }
         return getLocalGroupsClaimURI();
+    }
+
+    /**
+     * Returns the separator used to separate the values of the IDP group claim.
+     *
+     * @return IDP group claim value separator.
+     */
+    public static String getIdpGroupClaimValueSeparator() {
+
+        boolean useLocalRoleIdpRoleMapping = Boolean.parseBoolean(
+                IdentityUtil.getProperty(USE_IDP_ROLE_CLAIM_AS_IDP_GROUP_CLAIM));
+        if (IdentityUtil.getProperty(FrameworkConstants.FEDERATED_IDP_GROUP_CLAIM_VALUE_SEPARATOR) != null
+                && !useLocalRoleIdpRoleMapping) {
+            return IdentityUtil.getProperty(FrameworkConstants.FEDERATED_IDP_GROUP_CLAIM_VALUE_SEPARATOR);
+        } else if (IdentityUtil.getProperty(FrameworkConstants.FEDERATED_IDP_ROLE_CLAIM_VALUE_SEPARATOR) != null
+                && useLocalRoleIdpRoleMapping) {
+            return IdentityUtil.getProperty(FrameworkConstants.FEDERATED_IDP_ROLE_CLAIM_VALUE_SEPARATOR);
+        }
+        return FrameworkUtils.getMultiAttributeSeparator();
     }
 
     /**
@@ -2415,6 +2930,39 @@ public class FrameworkUtils {
         return userNamePrvisioningUrl;
     }
 
+    /**
+     * This method determines whether username pattern validation should be skipped for JIT provisioning users based
+     * on the configuration file.
+     *
+     * @return boolean Whether to skip username validation or not.
+     */
+    public static boolean isSkipUsernamePatternValidation() {
+
+        return Boolean.parseBoolean(
+                IdentityUtil.getProperty("JITProvisioning.SkipUsernamePatternValidation"));
+    }
+
+
+    /**
+     * This method is to provide flag about Adaptive authentication is availability.
+     *
+     * @return AdaptiveAuthentication Available or not.
+     */
+    public static boolean isAdaptiveAuthenticationAvailable() {
+
+        return FrameworkServiceDataHolder.getInstance().isAdaptiveAuthenticationAvailable();
+    }
+
+    /**
+     * This method is to check whether organization management is enabled.
+     *
+     * @return Organization management feature is enabled or not.
+     */
+    public static boolean isOrganizationManagementEnabled() {
+
+        return FrameworkServiceDataHolder.getInstance().isOrganizationManagementEnabled();
+    }
+
     public static boolean promptOnLongWait() {
 
         boolean promptOnLongWait = false;
@@ -2462,76 +3010,28 @@ public class FrameworkUtils {
         return null;
     }
 
+    /**
+     * Serialize the object using selected serializable function.
+     * @param value Object to evaluate.
+     * @return Serialized Object.
+     */
     public static Object toJsSerializable(Object value) {
 
-        if (value instanceof Serializable) {
-            if (value instanceof HashMap) {
-                Map<String, Object> map = new HashMap<>();
-                ((HashMap) value).forEach((k, v) -> map.put((String) k, FrameworkUtils.toJsSerializable(v)));
-                return map;
-            } else {
-                return value;
-            }
-        } else if (value instanceof ScriptObjectMirror) {
-            ScriptObjectMirror scriptObjectMirror = (ScriptObjectMirror) value;
-            if (scriptObjectMirror.isFunction()) {
-                return SerializableJsFunction.toSerializableForm(scriptObjectMirror);
-            } else if (scriptObjectMirror.isArray()) {
-                List<Serializable> arrayItems = new ArrayList<>(scriptObjectMirror.size());
-                scriptObjectMirror.values().forEach(v -> {
-                    Object serializedObj = toJsSerializable(v);
-                    if (serializedObj instanceof Serializable) {
-                        arrayItems.add((Serializable) serializedObj);
-                        if (log.isDebugEnabled()) {
-                            log.debug("Serialized the value of array item as : " + serializedObj);
-                        }
-                    } else {
-                        log.warn(String.format("Non serializable array item: %s. and will not be persisted.",
-                                serializedObj));
-                    }
-                });
-                return arrayItems;
-            } else if (!scriptObjectMirror.isEmpty()) {
-                Map<String, Serializable> serializedMap = new HashMap<>();
-                scriptObjectMirror.forEach((k, v) -> {
-                    Object serializedObj = toJsSerializable(v);
-                    if (serializedObj instanceof Serializable) {
-                        serializedMap.put(k, (Serializable) serializedObj);
-                        if (log.isDebugEnabled()) {
-                            log.debug("Serialized the value for key : " + k);
-                        }
-                    } else {
-                        log.warn(String.format("Non serializable object for key : %s, and will not be persisted.", k));
-                    }
-
-                });
-                return serializedMap;
-            } else {
-                return Collections.EMPTY_MAP;
-            }
-        }
-        return value;
+        return FrameworkServiceDataHolder.getInstance().getJsGenericGraphBuilderFactory()
+                .getJsUtil().toJsSerializable(value);
     }
 
+    /**
+     * De-Serialize the object using selected serializable function.
+     * @param value Serialized Object.
+     * @param engine Js Engine.
+     * @return De-Serialize object.
+     * @throws FrameworkException FrameworkException.
+     */
     public static Object fromJsSerializable(Object value, ScriptEngine engine) throws FrameworkException {
 
-        if (value instanceof SerializableJsFunction) {
-            SerializableJsFunction serializableJsFunction = (SerializableJsFunction) value;
-            try {
-                return engine.eval(serializableJsFunction.getSource());
-            } catch (ScriptException e) {
-                throw new FrameworkException("Error in resurrecting a Javascript Function : " + serializableJsFunction);
-            }
-
-        } else if (value instanceof Map) {
-            Map<String, Object> deserializedMap = new HashMap<>();
-            for (Entry<String, Object> entry : ((Map<String, Object>) value).entrySet()) {
-                Object deserializedObj = fromJsSerializable(entry.getValue(), engine);
-                deserializedMap.put(entry.getKey(), deserializedObj);
-            }
-            return deserializedMap;
-        }
-        return value;
+        return FrameworkServiceDataHolder.getInstance().getJsGraphBuilderFactory().getJsUtil().
+                fromJsSerializable(value, engine);
     }
 
     /**
@@ -2600,6 +3100,16 @@ public class FrameworkUtils {
 
         return Boolean.parseBoolean(IdentityUtil.getProperty(USER_SESSION_MAPPING_ENABLED)) && isTableExistsInSessionDB(
                 "IDN_AUTH_USER") && isTableExistsInSessionDB("IDN_AUTH_USER_SESSION_MAPPING");
+    }
+
+    /**
+     * Get the server config for skip user local search during federated authentication flow
+     *
+     * @return isSkipLocalUserSearchForAuthenticationFlowHandlersEnabled value
+     */
+    public static boolean isSkipLocalUserSearchForAuthenticationFlowHandlersEnabled() {
+
+        return Boolean.parseBoolean(IdentityUtil.getProperty(SKIP_LOCAL_USER_SEARCH_FOR_AUTHENTICATION_FLOW_HANDLERS));
     }
 
     /**
@@ -2755,6 +3265,42 @@ public class FrameworkUtils {
     }
 
     /**
+     * Checking whether the tenant id column is available in the IDN_FED_AUTH_SESSION_MAPPING table.
+     */
+    public static void checkIfTenantIdColumnIsAvailableInFedAuthTable() {
+
+        isTenantIdColumnAvailableInFedAuthTable = isTableColumnExists("IDN_FED_AUTH_SESSION_MAPPING", "TENANT_ID");
+    }
+
+    /**
+     * Return whether the tenant id column is available in the IDN_FED_AUTH_SESSION_MAPPING table.
+     *
+     * @return True if tenant id is available in IDN_FED_AUTH_SESSION_MAPPING table. Else return false.
+     */
+    public static boolean isTenantIdColumnAvailableInFedAuthTable() {
+
+        return isTenantIdColumnAvailableInFedAuthTable;
+    }
+
+    /**
+     * Checking whether the idp id column is available in the IDN_FED_AUTH_SESSION_MAPPING table.
+     */
+    public static void checkIfIdpIdColumnIsAvailableInFedAuthTable() {
+
+        isIdpIdColumnAvailableInFedAuthTable = isTableColumnExists("IDN_FED_AUTH_SESSION_MAPPING", "IDP_ID");
+    }
+
+    /**
+     * Return whether the idp id column is available in the IDN_FED_AUTH_SESSION_MAPPING table.
+     *
+     * @return True if idp id is available in IDN_FED_AUTH_SESSION_MAPPING table. Else return false.
+     */
+    public static boolean isIdpIdColumnAvailableInFedAuthTable() {
+
+        return isIdpIdColumnAvailableInFedAuthTable;
+    }
+
+    /**
      * Remove domain name from roles except the hybrid roles (Internal,Application & Workflow).
      *
      * @param domainAwareRolesList list of roles assigned to a user.
@@ -2810,6 +3356,93 @@ public class FrameworkUtils {
         } catch (IdentityException e) {
             throw new UserSessionException("Error occurred while resolving Id for the user: " + username, e);
         }
+    }
+
+    /**
+     * Check if all the authenticators inside the IdP are flow handlers.
+     *
+     * @param authenticatorConfigList
+     * @return boolean
+     */
+    public static boolean isAllFlowHandlers(List<AuthenticatorConfig> authenticatorConfigList) {
+
+        for (AuthenticatorConfig config : authenticatorConfigList) {
+            if (!(config.getApplicationAuthenticator() instanceof AuthenticationFlowHandler)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
+     * By looping over all the IdPs, check if at lease one IdP has enabled the JIT provisioning.
+     *
+     * @param context
+     * @return
+     * @throws PostAuthenticationFailedException Post Authentication failed exception.
+     */
+    public static boolean isJITProvisioningEnabled(AuthenticationContext context)
+            throws PostAuthenticationFailedException {
+
+        SequenceConfig sequenceConfig = context.getSequenceConfig();
+        for (Map.Entry<Integer, StepConfig> entry : sequenceConfig.getStepMap().entrySet()) {
+            StepConfig stepConfig = entry.getValue();
+            AuthenticatorConfig authenticatorConfig = stepConfig.getAuthenticatedAutenticator();
+            if (authenticatorConfig == null) {
+                //May have skipped from the script
+                //ex: Different authentication sequences evaluated by the script
+                continue;
+            }
+            ApplicationAuthenticator authenticator = authenticatorConfig.getApplicationAuthenticator();
+
+            if (authenticator instanceof FederatedApplicationAuthenticator) {
+                ExternalIdPConfig externalIdPConfig;
+                String externalIdPConfigName = stepConfig.getAuthenticatedIdP();
+                externalIdPConfig = getExternalIdpConfig(externalIdPConfigName, context);
+                context.setExternalIdP(externalIdPConfig);
+
+                if (externalIdPConfig != null && externalIdPConfig.isProvisioningEnabled()) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    /**
+     * To get the external IDP Config.
+     *
+     * @param externalIdPConfigName Name of the external IDP Config.
+     * @param context               Authentication Context.
+     * @return relevant external IDP config.
+     * @throws PostAuthenticationFailedException Post AuthenticationFailedException.
+     */
+    private static ExternalIdPConfig getExternalIdpConfig(String externalIdPConfigName, AuthenticationContext context)
+            throws PostAuthenticationFailedException {
+
+        ExternalIdPConfig externalIdPConfig = null;
+        try {
+            externalIdPConfig = ConfigurationFacade.getInstance()
+                    .getIdPConfigByName(externalIdPConfigName, context.getTenantDomain());
+        } catch (IdentityProviderManagementException e) {
+            handleExceptions(String.format(ERROR_WHILE_GETTING_IDP_BY_NAME.getMessage(), externalIdPConfigName,
+                    context.getTenantDomain()), ERROR_WHILE_GETTING_IDP_BY_NAME.getCode(), e);
+        }
+        return externalIdPConfig;
+    }
+
+    /**
+     * To handle exceptions.
+     *
+     * @param errorMessage Error Message
+     * @param errorCode    Error Code.
+     * @param e            Exception that is thrown during a failure.
+     * @throws PostAuthenticationFailedException Post Authentication Failed Exception.
+     */
+    private static void handleExceptions(String errorMessage, String errorCode, Exception e)
+            throws PostAuthenticationFailedException {
+
+        throw new PostAuthenticationFailedException(errorCode, errorMessage, e);
     }
 
     /**
@@ -3218,9 +3851,9 @@ public class FrameworkUtils {
 
         List<String> claimMappingListOfScopes = new ArrayList<>();
         try {
-            UserRealm realm = AnonymousSessionUtil.getRealmByTenantDomain(
-                    FrameworkServiceComponent.getRegistryService(),
-                    FrameworkServiceComponent.getRealmService(), tenantDomain);
+            RealmService realmService = FrameworkServiceDataHolder.getInstance().getRealmService();
+            int tenantId = realmService.getTenantManager().getTenantId(tenantDomain);
+            UserRealm realm = (UserRealm) realmService.getTenantUserRealm(tenantId);
             ClaimManager claimManager = realm.getClaimManager();
 
             if (claimManager != null) {
@@ -3235,7 +3868,7 @@ public class FrameworkUtils {
                     }
                 }
             }
-        } catch (CarbonException | UserStoreException e) {
+        } catch (UserStoreException e) {
             throw new ClaimManagementException("Error while trying retrieve user claims for tenant domain: " +
                     tenantDomain, e);
         }
@@ -3246,6 +3879,315 @@ public class FrameworkUtils {
                 requestedScopeClaims.add(claim);
             }
         }
+        if (LoggerUtils.isDiagnosticLogsEnabled()) {
+            DiagnosticLog.DiagnosticLogBuilder diagnosticLogBuilder = new DiagnosticLog.DiagnosticLogBuilder(
+                    FrameworkConstants.LogConstants.AUTHENTICATION_FRAMEWORK,
+                    FrameworkConstants.LogConstants.ActionIDs.PROCESS_CLAIM_CONSENT);
+            diagnosticLogBuilder.resultMessage("Filter Claims by OIDC Scopes.")
+                    .inputParam("available user attributes", claimListOfScopes)
+                    .inputParam("available claims for scopes", claimMappingListOfScopes)
+                    .resultStatus(DiagnosticLog.ResultStatus.SUCCESS)
+                    .logDetailLevel(DiagnosticLog.LogDetailLevel.APPLICATION);
+            LoggerUtils.triggerDiagnosticLogEvent(diagnosticLogBuilder);
+        }
         return requestedScopeClaims;
+    }
+
+    /**
+     * Util function to build caller patch redirect URLs using ServiceURLBuilder.
+     *
+     * @param callerPath        Application caller path.
+     * @param context           Authentication context.
+     * @return  redirect URL.
+     * @throws URLBuilderException  throw if an error occurred during URL generation.
+     */
+    public static String buildCallerPathRedirectURL(String callerPath, AuthenticationContext context)
+            throws URLBuilderException {
+
+        String serviceProvider = null;
+        if (context.getSequenceConfig() != null && context.getSequenceConfig().getApplicationConfig() != null) {
+            serviceProvider = context.getSequenceConfig().getApplicationConfig().getApplicationName();
+        }
+        /*
+         Skip My Account and Console application redirections to use ServiceURLBuilder for URL generation
+         since custom domain branding capabilities are not provided for them.
+         */
+        if (!(MY_ACCOUNT_APP.equals(serviceProvider) || CONSOLE_APP.equals(serviceProvider))) {
+            if (callerPath != null && callerPath.startsWith(FrameworkConstants.TENANT_CONTEXT_PREFIX)) {
+                String callerTenant = callerPath.split("/")[2];
+                String callerPathWithoutTenant = callerPath.replaceFirst("/t/[^/]+/", "/");
+                String redirectURL = ServiceURLBuilder.create().addPath(callerPathWithoutTenant)
+                        .setTenant(callerTenant, true).build().getAbsolutePublicURL();
+                return redirectURL;
+            } else if (callerPath != null && callerPath.startsWith(FrameworkConstants.ORGANIZATION_CONTEXT_PREFIX)) {
+                String callerOrgId = callerPath.split("/")[2];
+                String callerPathWithoutOrgId = callerPath.replaceFirst("/o/[^/]+/", "/");
+                String redirectURL = ServiceURLBuilder.create().addPath(callerPathWithoutOrgId)
+                        .setTenant(context.getLoginTenantDomain()).setOrganization(callerOrgId)
+                        .build().getAbsolutePublicURL();
+                return redirectURL;
+            }
+        }
+        return callerPath;
+    }
+
+    /**
+     * Util function to check whether using authenticator name to resolve authenticatorConfig in adaptive scripts
+     * is enabled. If not authenticator display name is used.
+     *
+     * @return boolean indicating server config preference.
+     */
+    public static boolean isAuthenticatorNameInAuthConfigEnabled() {
+
+        if (authenticatorNameInAuthConfigPreference == null) {
+            authenticatorNameInAuthConfigPreference = Boolean.parseBoolean(IdentityUtil.getProperty(
+                    AUTHENTICATOR_NAME_IN_AUTH_CONFIG));
+        }
+
+        return authenticatorNameInAuthConfigPreference;
+    }
+
+    /**
+     * Util method to check whether authentication context expiry validation is enabled.
+     *
+     * @return boolean indicating whether the validation is enabled.
+     */
+    public static boolean isAuthenticationContextExpiryEnabled() {
+
+        return Boolean.parseBoolean(IdentityUtil.getProperty(AUTHENTICATION_CONTEXT_EXPIRY_VALIDATION));
+    }
+
+    /**
+     * Util method to check whether Identifier First is initiated from an authenticator.
+     *
+     * @param context Authentication context.
+     * @return boolean indicating whether the IDF is initiated from an authenticator.
+     */
+    public static boolean isIdfInitiatedFromAuthenticator(AuthenticationContext context) {
+
+        return Boolean.TRUE.equals(context.getProperty(IS_IDF_INITIATED_FROM_AUTHENTICATOR));
+    }
+
+    /**
+     * Util method to check whether the user is resolved.
+     *
+     * @param context Authentication context.
+     * @return boolean indicating whether the user is resolved.
+     */
+    public static boolean getIsUserResolved(AuthenticationContext context) {
+
+        boolean isUserResolved = false;
+        if (!context.getProperties().isEmpty() &&
+                context.getProperty(FrameworkConstants.IS_USER_RESOLVED) != null) {
+            isUserResolved = (boolean) context.getProperty(FrameworkConstants.IS_USER_RESOLVED);
+        }
+        return isUserResolved;
+    }
+
+    /**
+     * This method checks if all the authentication steps up to now have been performed by authenticators that
+     * implements AuthenticationFlowHandler interface. If so, it returns true.
+     * AuthenticationFlowHandlers may not perform actual authentication though the authenticated user is set in the
+     * context. Hence, this method can be used to determine if the user has been authenticated by a previous step.
+     *
+     * @param context   AuthenticationContext.
+     * @return True if all the authentication steps up to now have been performed by AuthenticationFlowHandlers.
+     */
+    public static boolean isPreviousIdPAuthenticationFlowHandler(AuthenticationContext context) {
+
+        Map<String, AuthenticatedIdPData> currentAuthenticatedIdPs = context.getCurrentAuthenticatedIdPs();
+        return currentAuthenticatedIdPs != null && !currentAuthenticatedIdPs.isEmpty() &&
+                currentAuthenticatedIdPs.values().stream().filter(Objects::nonNull)
+                        .map(AuthenticatedIdPData::getAuthenticators).filter(Objects::nonNull)
+                        .flatMap(List::stream)
+                        .allMatch(authenticator ->
+                                authenticator.getApplicationAuthenticator() instanceof AuthenticationFlowHandler);
+    }
+
+    public static JsBaseGraphBuilderFactory createJsGraphBuilderFactoryFromConfig() {
+
+        JsGenericGraphBuilderFactory jsGenericGraphBuilderFactory = createJsGenericGraphBuilderFactoryFromConfig();
+        if (jsGenericGraphBuilderFactory instanceof JsBaseGraphBuilderFactory) {
+            return (JsBaseGraphBuilderFactory) jsGenericGraphBuilderFactory;
+        }
+        return null;
+    }
+
+    public static JsGenericGraphBuilderFactory createJsGenericGraphBuilderFactoryFromConfig() {
+
+        String scriptEngineName = IdentityUtil.getProperty(FrameworkConstants.SCRIPT_ENGINE_CONFIG);
+        if (scriptEngineName != null) {
+            if (StringUtils.equalsIgnoreCase(FrameworkConstants.GRAAL_JS, scriptEngineName)) {
+                return new JsGraalGraphBuilderFactory();
+            } else if (StringUtils.equalsIgnoreCase(FrameworkConstants.OPENJDK_NASHORN, scriptEngineName)) {
+                return new JsOpenJdkNashornGraphBuilderFactory();
+            } else if (StringUtils.equalsIgnoreCase(FrameworkConstants.NASHORN, scriptEngineName)) {
+                return new JsGraphBuilderFactory();
+            }
+        }
+        // Config is not set. Hence going with class for name approach.
+        try {
+            Class.forName(OPENJDK_SCRIPTER_CLASS_NAME);
+            return new JsOpenJdkNashornGraphBuilderFactory();
+        } catch (ClassNotFoundException e) {
+            try {
+                Class.forName(JDK_SCRIPTER_CLASS_NAME);
+                return new JsGraphBuilderFactory();
+            } catch (ClassNotFoundException classNotFoundException) {
+                try {
+                    Class.forName(GRAALJS_SCRIPTER_CLASS_NAME);
+                    return new JsGraalGraphBuilderFactory();
+                } catch (ClassNotFoundException ex) {
+                    return null;
+                }
+            }
+        }
+    }
+
+    /**
+     * This method will check whether the authentication flow is API based or not.
+     *
+     * @param request Http servlet request.
+     * @return True if the authentication flow is API based.
+     */
+    public static boolean isAPIBasedAuthenticationFlow(HttpServletRequest request) {
+
+        return Boolean.TRUE.equals(request.getAttribute(FrameworkConstants.IS_API_BASED_AUTH_FLOW));
+    }
+
+    /**
+     * Create a shallow copy of the input Identity Provider.
+     *
+     * @param idP Identity Provider.
+     * @return Clone of IDP.
+     */
+    public static IdentityProvider createIdPClone(IdentityProvider idP) throws FrameworkException {
+
+        ObjectOutputStream objOutPutStream;
+        ObjectInputStream objInputStream;
+        IdentityProvider newObject;
+        try {
+            ByteArrayOutputStream byteArrayOutPutStream = new ByteArrayOutputStream();
+            objOutPutStream = new ObjectOutputStream(byteArrayOutPutStream);
+            objOutPutStream.writeObject(idP);
+
+            ByteArrayInputStream byteArrayInputStream = new ByteArrayInputStream(byteArrayOutPutStream.toByteArray());
+            objInputStream = new ObjectInputStream(byteArrayInputStream);
+            newObject = (IdentityProvider) objInputStream.readObject();
+        } catch (ClassNotFoundException | IOException e) {
+            throw new FrameworkException("Error deep cloning IDP object.", e);
+        }
+        return newObject;
+    }
+
+    /**
+     * Create a shallow copy of the input Service Provider.
+     *
+     * @param serviceProvider Service Provider.
+     * @return Clone of Application.
+     */
+    public static ServiceProvider createSPClone(ServiceProvider serviceProvider) throws FrameworkException {
+
+        ObjectOutputStream objOutPutStream;
+        ObjectInputStream objInputStream;
+        ServiceProvider newObject;
+        try {
+            ByteArrayOutputStream byteArrayOutPutStream = new ByteArrayOutputStream();
+            objOutPutStream = new ObjectOutputStream(byteArrayOutPutStream);
+            objOutPutStream.writeObject(serviceProvider);
+
+            ByteArrayInputStream byteArrayInputStream = new ByteArrayInputStream(byteArrayOutPutStream.toByteArray());
+            objInputStream = new ObjectInputStream(byteArrayInputStream);
+            newObject = (ServiceProvider) objInputStream.readObject();
+        } catch (ClassNotFoundException | IOException e) {
+            throw new FrameworkException("Error deep cloning application object.", e);
+        }
+        return newObject;
+    }
+
+    /**
+     * Get claim properties of a claim in a given tenant.
+     *
+     * @param tenantDomain The tenant domain.
+     * @param claimURI     Claim URI.
+     * @return Properties of the claim.
+     */
+    private static Map<String, String> getClaimProperties(String tenantDomain, String claimURI) {
+
+        try {
+            List<LocalClaim> localClaims = FrameworkServiceDataHolder.getInstance()
+                    .getClaimMetadataManagementService().getLocalClaims(tenantDomain);
+            if (localClaims == null) {
+                if (log.isDebugEnabled()) {
+                    log.debug("Returned claim list from ClaimManagementService is null");
+                }
+                return Collections.emptyMap();
+            }
+            for (LocalClaim localClaim : localClaims) {
+                if (StringUtils.equalsIgnoreCase(claimURI, localClaim.getClaimURI())) {
+                    return localClaim.getClaimProperties();
+                }
+            }
+        } catch (ClaimMetadataException e) {
+            log.error("Error while retrieving local claim meta data.", e);
+        }
+        return Collections.emptyMap();
+    }
+
+    /**
+     * Encrypt the given plain text.
+     *
+     * @param plainText The plaintext value to be encrypted and base64 encoded
+     * @return Base64 encoded string
+     * @throws CryptoException On error during encryption
+     */
+    public static String encrypt(String plainText) throws CryptoException {
+
+        String tenantDomain = CarbonContext.getThreadLocalCarbonContext().getTenantDomain();
+        // Get custom key from server configuration.
+        String customKey = null;
+        if (MultitenantConstants.SUPER_TENANT_DOMAIN_NAME.equals(tenantDomain)) {
+            customKey = ServerConfiguration.getInstance().getFirstProperty(FrameworkConstants.TOTP_KEY);
+        }
+        return CryptoUtil.getDefaultCryptoUtil().encryptAndBase64Encode(
+                plainText.getBytes(StandardCharsets.UTF_8), customKey);
+    }
+
+    /**
+     * Process the claimValue of the given claimURI and encrypt if required.
+     *
+     * @param claimURI     Claim URI.
+     * @param claimValue   Claim value.
+     * @param tenantDomain The tenant domain.
+     * @return Processed claim value.
+     * @throws FrameworkException On error during encryption process.
+     */
+    public static String getProcessedClaimValue(String claimURI, String claimValue, String tenantDomain)
+            throws FrameworkException {
+
+        Map<String, String> claimProperties = getClaimProperties(tenantDomain, claimURI);
+        try {
+            if (claimProperties.containsKey(FrameworkConstants.ENABLE_ENCRYPTION)) {
+                return claimValue;
+            }
+            if (StringUtils.isBlank(claimValue)) {
+                return claimValue;
+            }
+            return encrypt(claimValue);
+        } catch (CryptoException e) {
+            throw new FrameworkException("Error occurred while encrypting claim value of: " + claimURI, e);
+        }
+    }
+
+    /**
+     * This method return true if the given URL is relative URL.
+     *
+     * @param uriString
+     * @return true if the given URL is relative URL.
+     * @throws URISyntaxException
+     */
+    public static boolean isURLRelative(String uriString) throws URISyntaxException {
+
+        return !new URI(uriString).isAbsolute();
     }
 }

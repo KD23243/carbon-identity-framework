@@ -1,7 +1,7 @@
 /*
- * Copyright (c) 2018, WSO2 Inc. (http://www.wso2.org) All Rights Reserved.
+ * Copyright (c) 2022, WSO2 LLC. (http://www.wso2.com).
  *
- * WSO2 Inc. licenses this file to you under the Apache License,
+ * WSO2 LLC. licenses this file to you under the Apache License,
  * Version 2.0 (the "License"); you may not use this file except
  * in compliance with the License.
  * You may obtain a copy of the License at
@@ -18,6 +18,10 @@
 
 package org.wso2.carbon.identity.application.authentication.framework.config.model.graph.js;
 
+import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
+import org.wso2.carbon.identity.application.authentication.framework.config.model.graph.JsWrapperFactoryProvider;
+import org.wso2.carbon.identity.application.authentication.framework.config.model.graph.js.base.JsBaseServletResponse;
 import org.wso2.carbon.identity.application.authentication.framework.context.TransientObjectWrapper;
 import org.wso2.carbon.identity.application.authentication.framework.util.FrameworkConstants;
 
@@ -29,7 +33,7 @@ import javax.servlet.http.Cookie;
 import javax.servlet.http.HttpServletResponse;
 
 /**
- * Javascript wrapper for Java level HttpServletResponse.
+ * Abstract Javascript wrapper for Java level HttpServletResponse.
  * This provides controlled access to HttpServletResponse object via provided javascript native syntax.
  * e.g
  * response.headers.["Set-Cookie"] = ['crsftoken=xxxxxssometokenxxxxx']
@@ -40,29 +44,20 @@ import javax.servlet.http.HttpServletResponse;
  * Also, it prevents writing an arbitrary values to the respective fields, keeping consistency on runtime
  * HttpServletResponse.
  */
-public class JsServletResponse extends AbstractJSObjectWrapper<TransientObjectWrapper<HttpServletResponse>> {
+public abstract class JsServletResponse
+        extends AbstractJSObjectWrapper<TransientObjectWrapper<HttpServletResponse>>
+        implements JsBaseServletResponse {
+
+    private static final Log LOG = LogFactory.getLog(JsServletResponse.class);
 
     public JsServletResponse(TransientObjectWrapper<HttpServletResponse> wrapped) {
 
         super(wrapped);
     }
 
-    @Override
-    public Object getMember(String name) {
+    public Object getMemberKeys() {
 
-        switch (name) {
-        case FrameworkConstants.JSAttributes.JS_HEADERS:
-            Map headers = new HashMap();
-            Collection<String> headerNames = getResponse().getHeaderNames();
-            if (headerNames != null) {
-                for (String element : headerNames) {
-                    headers.put(element, getResponse().getHeader(element));
-                }
-            }
-            return new JsHeaders(headers, getResponse());
-        default:
-            return super.getMember(name);
-        }
+        return new String[]{FrameworkConstants.JSAttributes.JS_HEADERS};
     }
 
     @Override
@@ -79,6 +74,30 @@ public class JsServletResponse extends AbstractJSObjectWrapper<TransientObjectWr
         default:
             return super.hasMember(name);
         }
+    }
+
+    public Object getMember(String name) {
+
+        switch (name) {
+            case FrameworkConstants.JSAttributes.JS_HEADERS:
+                Map headers = new HashMap();
+                Collection<String> headerNames = getResponse().getHeaderNames();
+                if (headerNames != null) {
+                    for (String element : headerNames) {
+                        headers.put(element, getResponse().getHeader(element));
+                    }
+                }
+                return JsWrapperFactoryProvider.getInstance().getWrapperFactory()
+                        .createJsHeaders(headers, getResponse());
+            default:
+                return super.getMember(name);
+        }
+    }
+
+    public void setMember(String name, Object value) {
+
+        LOG.warn("Unsupported operation. Servlet Response is read only. Can't set parameter " + name + " to value: " +
+                value);
     }
 
     private HttpServletResponse getResponse() {

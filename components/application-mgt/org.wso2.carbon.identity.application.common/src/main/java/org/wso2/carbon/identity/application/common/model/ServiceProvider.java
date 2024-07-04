@@ -1,7 +1,7 @@
 /*
- * Copyright (c) 2014, WSO2 Inc. (http://www.wso2.org) All Rights Reserved.
+ * Copyright (c) 2014-2023, WSO2 LLC. (http://www.wso2.com).
  *
- * WSO2 Inc. licenses this file to you under the Apache License,
+ * WSO2 LLC. licenses this file to you under the Apache License,
  * Version 2.0 (the "License"); you may not use this file except
  * in compliance with the License.
  * You may obtain a copy of the License at
@@ -17,6 +17,7 @@
  */
 package org.wso2.carbon.identity.application.common.model;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import org.apache.axiom.om.OMElement;
 import org.apache.axis2.databinding.annotation.IgnoreNullElement;
 import org.apache.commons.collections.CollectionUtils;
@@ -51,7 +52,13 @@ public class ServiceProvider implements Serializable {
     private static final String TEMPLATE_ID = "TemplateId";
     private static final String IS_MANAGEMENT_APP = "IsManagementApp";
 
+    private static final String IS_B2B_SELF_SERVICE_APP = "IsB2BSelfServiceApp";
+    private static final String IS_APPLICATION_ENABLED = "IsApplicationEnabled";
+    private static final String ASSOCIATED_ROLES_CONFIG = "AssociatedRolesConfig";
+    private static final String IS_API_BASED_AUTHENTICATION_ENABLED = "IsAPIBasedAuthenticationEnabled";
+
     @XmlTransient
+    @JsonIgnore
     private int applicationID = 0;
 
     @XmlElement(name = "ApplicationName")
@@ -67,7 +74,12 @@ public class ServiceProvider implements Serializable {
     private String jwksUri;
 
     @XmlTransient
+    @JsonIgnore
     private User owner;
+
+    @XmlTransient
+    @JsonIgnore
+    private String tenantDomain;
 
     @XmlElement(name = "InboundAuthenticationConfig")
     private InboundAuthenticationConfig inboundAuthenticationConfig;
@@ -95,10 +107,12 @@ public class ServiceProvider implements Serializable {
     private boolean saasApp;
 
     @XmlTransient
+    @JsonIgnore
     private ServiceProviderProperty[] spProperties = new ServiceProviderProperty[0];
 
     @IgnoreNullElement
     @XmlTransient
+    @JsonIgnore
     private String applicationResourceId;
 
     @IgnoreNullElement
@@ -119,6 +133,26 @@ public class ServiceProvider implements Serializable {
     @IgnoreNullElement
     @XmlElement(name = IS_MANAGEMENT_APP)
     private boolean isManagementApp;
+
+    @IgnoreNullElement
+    @XmlElement(name = IS_B2B_SELF_SERVICE_APP)
+    private boolean isB2BSelfServiceApp;
+
+    @XmlElement(name = ASSOCIATED_ROLES_CONFIG)
+    private AssociatedRolesConfig associatedRolesConfig;
+
+    @IgnoreNullElement
+    @XmlElement(name = IS_APPLICATION_ENABLED)
+    private boolean isApplicationEnabled = true;
+
+    @IgnoreNullElement
+    @XmlElement(name = IS_API_BASED_AUTHENTICATION_ENABLED)
+    private boolean isAPIBasedAuthenticationEnabled;
+
+    @IgnoreNullElement
+    @XmlElement(name = "ClientAttestationMetaData")
+    private ClientAttestationMetaData clientAttestationMetaData;
+
     /*
      * <ServiceProvider> <ApplicationID></ApplicationID> <Description></Description>
      * <Owner>....</Owner>
@@ -136,6 +170,7 @@ public class ServiceProvider implements Serializable {
 
         // by default set to true.
         serviceProvider.setSaasApp(true);
+        serviceProvider.setApplicationEnabled(true);
 
         Iterator<?> iter = serviceProviderOM.getChildElements();
 
@@ -151,6 +186,7 @@ public class ServiceProvider implements Serializable {
             } else if ("ApplicationName".equals(elementName)) {
                 if (element.getText() != null) {
                     serviceProvider.setApplicationName(element.getText());
+                    serviceProvider.setApplicationResourceId(serviceProvider.getApplicationName());
                 } else {
                     log.error("Service provider not loaded from the file. Application Name is null.");
                     return null;
@@ -167,6 +203,14 @@ public class ServiceProvider implements Serializable {
                 serviceProvider.setCertificateContent(element.getText());
             } else if ("JwksUri".equals(elementName)) {
                 serviceProvider.setJwksUri(element.getText());
+            } else if (IS_API_BASED_AUTHENTICATION_ENABLED.equals(elementName)) {
+                boolean isAPIBasedAuthEnabled = element.getText() != null && "true".equals(element.getText());
+                serviceProvider.setAPIBasedAuthenticationEnabled(isAPIBasedAuthEnabled);
+            } else if ("ClientAttestationMetaData".equals(elementName)) {
+                // build client attestation meta data configuration.
+                serviceProvider
+                        .setClientAttestationMetaData(ClientAttestationMetaData
+                                .build(element));
             } else if ("IsSaaSApp".equals(elementName)) {
                 if (element.getText() != null && "true".equals(element.getText())) {
                     serviceProvider.setSaasApp(true);
@@ -231,6 +275,15 @@ public class ServiceProvider implements Serializable {
             } else if ("PermissionAndRoleConfig".equals(elementName)) {
                 // build permission and role configuration.
                 serviceProvider.setPermissionAndRoleConfig(PermissionsAndRoleConfig.build(element));
+            } else if (ASSOCIATED_ROLES_CONFIG.equals(elementName)) {
+                // build role association.
+                serviceProvider.setAssociatedRolesConfig(AssociatedRolesConfig.build(element));
+            } else if (IS_APPLICATION_ENABLED.equals(elementName)) {
+                if (element.getText() != null && "true".equals(element.getText())) {
+                    serviceProvider.setApplicationEnabled(true);
+                } else  {
+                    serviceProvider.setApplicationEnabled(!"false".equals(element.getText()));
+                }
             }
         }
 
@@ -353,6 +406,26 @@ public class ServiceProvider implements Serializable {
     }
 
     /**
+     * Get associated roles config.
+     *
+     * @return AssociatedRolesConfig.
+     */
+    public AssociatedRolesConfig getAssociatedRolesConfig() {
+
+        return associatedRolesConfig;
+    }
+
+    /**
+     * Set associated roles config.
+     *
+     * @param associatedRolesConfig AssociatedRolesConfig.
+     */
+    public void setAssociatedRolesConfig(AssociatedRolesConfig associatedRolesConfig) {
+
+        this.associatedRolesConfig = associatedRolesConfig;
+    }
+
+    /**
      * @return
      */
     public String getApplicationName() {
@@ -378,6 +451,24 @@ public class ServiceProvider implements Serializable {
      */
     public void setOwner(User owner) {
         this.owner = owner;
+    }
+
+    /**
+     * Gets the Service Provider tenant domain.
+     *
+     * @return Service Provider tenant domain
+     */
+    public String getTenantDomain() {
+        return tenantDomain;
+    }
+
+    /**
+     * Sets the Service Provider tenant domain.
+     *
+     * @param tenantDomain  Service Provider tenant domain
+     */
+    public void setTenantDomain(String tenantDomain) {
+        this.tenantDomain = tenantDomain;
     }
 
     public String getDescription() {
@@ -492,6 +583,45 @@ public class ServiceProvider implements Serializable {
     public void setManagementApp(boolean managementApp) {
 
         isManagementApp = managementApp;
+    }
+
+    public boolean isB2BSelfServiceApp() {
+
+        return isB2BSelfServiceApp;
+    }
+
+    public void setB2BSelfServiceApp(boolean isB2BSelfServiceApp) {
+
+        this.isB2BSelfServiceApp = isB2BSelfServiceApp;
+    }
+
+    public boolean isAPIBasedAuthenticationEnabled() {
+
+        return isAPIBasedAuthenticationEnabled;
+    }
+
+    public void setAPIBasedAuthenticationEnabled(boolean isAPIBasedAuthenticationEnabled) {
+
+        this.isAPIBasedAuthenticationEnabled = isAPIBasedAuthenticationEnabled;
+    }
+    public ClientAttestationMetaData getClientAttestationMetaData() {
+
+        return clientAttestationMetaData;
+    }
+
+    public void setClientAttestationMetaData(ClientAttestationMetaData clientAttestationMetaData) {
+
+        this.clientAttestationMetaData = clientAttestationMetaData;
+    }
+
+    public boolean isApplicationEnabled() {
+
+        return isApplicationEnabled;
+    }
+
+    public void setApplicationEnabled(boolean applicationEnabled) {
+
+        this.isApplicationEnabled = applicationEnabled;
     }
 }
 

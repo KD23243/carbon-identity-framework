@@ -60,6 +60,14 @@ import java.util.Map;
 
 import javax.servlet.http.HttpServletRequest;
 
+import static org.wso2.carbon.identity.application.common.util.IdentityApplicationConstants.IS_SYSTEM_RESERVED_APP_DISPLAY_NAME;
+import static org.wso2.carbon.identity.application.common.util.IdentityApplicationConstants.IS_SYSTEM_RESERVED_APP_FLAG;
+import static org.wso2.carbon.identity.application.common.util.IdentityApplicationConstants.LOCAL_SP;
+import static org.wso2.carbon.identity.application.common.util.IdentityApplicationConstants.PassiveSTS.PASSIVE_STS_REPLY_URL_LOGOUT;
+import static org.wso2.carbon.identity.application.common.util.IdentityApplicationConstants.SP_NAME;
+import static org.wso2.carbon.identity.application.mgt.ui.util.ApplicationMgtUIConstants.PASSIVE_STS;
+
+
 /**
  * UI bean to represent an application.
  */
@@ -94,6 +102,7 @@ public class ApplicationBean {
     private List<String> wstrustEp = new ArrayList<String>(0);
     private String passivests;
     private String passiveSTSWReply;
+    private String passiveSTSWReplyLogout;
     private String openid;
     private String[] claimUris;
     private List<String> claimDialectUris;
@@ -130,6 +139,7 @@ public class ApplicationBean {
         wstrustEp = new ArrayList<String>(0);
         passivests = null;
         passiveSTSWReply = null;
+        passiveSTSWReplyLogout = null;
         openid = null;
         oauthConsumerSecret = null;
         attrConsumServiceIndex = null;
@@ -912,6 +922,40 @@ public class ApplicationBean {
     }
 
     /**
+     * Returns the passive sts wreply logout url.
+     *
+     * @return Passive sts wreply logout url.
+     */
+    public String getPassiveSTSWReplyLogout() {
+
+        if (passiveSTSWReplyLogout != null) {
+            return passiveSTSWReplyLogout;
+        }
+
+        InboundAuthenticationRequestConfig[] authRequest = serviceProvider
+                .getInboundAuthenticationConfig().getInboundAuthenticationRequestConfigs();
+
+        if (authRequest != null) {
+            for (int i = 0; i < authRequest.length; i++) {
+                if (PASSIVE_STS.equalsIgnoreCase(authRequest[i].getInboundAuthType())) {
+                    // Get wreply logout url from properties.
+                    Property[] properties = authRequest[i].getProperties();
+                    if (properties != null) {
+                        for (int j = 0; j < properties.length; j++) {
+                            if (PASSIVE_STS_REPLY_URL_LOGOUT.equalsIgnoreCase(properties[j].getName())) {
+                                passiveSTSWReplyLogout = properties[j].getValue();
+                                break;
+                            }
+                        }
+                    }
+                    break;
+                }
+            }
+        }
+        return passiveSTSWReplyLogout;
+    }
+
+    /**
      * @return
      */
     public String[] getClaimUris() {
@@ -1139,7 +1183,9 @@ public class ApplicationBean {
         // update basic info.
         serviceProvider.setApplicationName(request.getParameter("spName"));
         serviceProvider.setDescription(request.getParameter("sp-description"));
-        serviceProvider.setCertificateContent(request.getParameter("sp-certificate"));
+        String spCertificate = request.getParameter("sp-certificate");
+        spCertificate = new String(Base64.getDecoder().decode(spCertificate), StandardCharsets.UTF_8);
+        serviceProvider.setCertificateContent(spCertificate);
 
         String jwks = request.getParameter("jwksUri");
         serviceProvider.setJwksUri(jwks);
@@ -1160,24 +1206,22 @@ public class ApplicationBean {
         serviceProvider.setImageUrl(imageUrl);
 
         String logoutReturnUrl = request.getParameter(LOGOUT_RETURN_URL);
-        if (StringUtils.isNotBlank(logoutReturnUrl)) {
-            boolean logoutReturnUrlDefined = false;
-            if (serviceProvider.getSpProperties() != null) {
-                for (ServiceProviderProperty property : serviceProvider.getSpProperties()) {
-                    if (property.getName() != null && LOGOUT_RETURN_URL.equals(property.getName())) {
-                        property.setValue(logoutReturnUrl);
-                        logoutReturnUrlDefined = true;
-                        break;
-                    }
+        boolean logoutReturnUrlDefined = false;
+        if (serviceProvider.getSpProperties() != null) {
+            for (ServiceProviderProperty property : serviceProvider.getSpProperties()) {
+                if (property.getName() != null && LOGOUT_RETURN_URL.equals(property.getName())) {
+                    property.setValue(logoutReturnUrl);
+                    logoutReturnUrlDefined = true;
+                    break;
                 }
             }
-            if (!logoutReturnUrlDefined) {
-                ServiceProviderProperty property = new ServiceProviderProperty();
-                property.setName(LOGOUT_RETURN_URL);
-                property.setDisplayName("Logout Return URL");
-                property.setValue(logoutReturnUrl);
-                serviceProvider.addSpProperties(property);
-            }
+        }
+        if (!logoutReturnUrlDefined) {
+            ServiceProviderProperty property = new ServiceProviderProperty();
+            property.setName(LOGOUT_RETURN_URL);
+            property.setDisplayName("Logout Return URL");
+            property.setValue(logoutReturnUrl);
+            serviceProvider.addSpProperties(property);
         }
 
         if (serviceProvider.getLocalAndOutBoundAuthenticationConfig() == null) {
@@ -1322,18 +1366,29 @@ public class ApplicationBean {
 
         String passiveSTSRealm = request.getParameter("passiveSTSRealm");
         String passiveSTSWReply = request.getParameter("passiveSTSWReply");
+        String passiveSTSWReplyLogout = request.getParameter(PASSIVE_STS_REPLY_URL_LOGOUT);
 
         if (StringUtils.isNotBlank(passiveSTSRealm)) {
             InboundAuthenticationRequestConfig opicAuthenticationRequest = new InboundAuthenticationRequestConfig();
             opicAuthenticationRequest.setInboundAuthKey(passiveSTSRealm);
             opicAuthenticationRequest.setInboundAuthType("passivests");
+
+            List<Property> propertiesArrList = new ArrayList<>();
             if (passiveSTSWReply != null && !passiveSTSWReply.isEmpty()) {
                 Property property = new Property();
                 property.setName("passiveSTSWReply");
                 property.setValue(passiveSTSWReply);
-                Property[] properties = {property};
-                opicAuthenticationRequest.setProperties(properties);
+                propertiesArrList.add(property);
             }
+            if (passiveSTSWReplyLogout != null && !passiveSTSWReplyLogout.isEmpty()) {
+                Property property = new Property();
+                property.setName(PASSIVE_STS_REPLY_URL_LOGOUT);
+                property.setValue(passiveSTSWReplyLogout);
+                propertiesArrList.add(property);
+            }
+            Property[] properties = propertiesArrList.toArray(new Property[0]);
+            opicAuthenticationRequest.setProperties(properties);
+
             authRequestList.add(opicAuthenticationRequest);
         }
 
@@ -1392,6 +1447,8 @@ public class ApplicationBean {
                 }
             }
             authStep.setLocalAuthenticatorConfigs(new LocalAuthenticatorConfig[]{localAuthenticator});
+            authStep.setSubjectStep(true);
+            authStep.setAttributeStep(true);
             serviceProvider.getLocalAndOutBoundAuthenticationConfig().setAuthenticationSteps(
                     new AuthenticationStep[]{authStep});
             serviceProvider.getLocalAndOutBoundAuthenticationConfig().setAuthenticationScriptConfig(null);
@@ -1624,6 +1681,16 @@ public class ApplicationBean {
     }
 
     /**
+     * Set passive STS wreply logout url.
+     *
+     * @param passiveSTSWReplyLogout Wreply logout url.
+     */
+    public void setPassiveSTSWReplyLogout(String passiveSTSWReplyLogout) {
+
+        this.passiveSTSWReplyLogout = passiveSTSWReplyLogout;
+    }
+
+    /**
      * @param openid
      */
     public void setOpenid(String openid) {
@@ -1690,6 +1757,21 @@ public class ApplicationBean {
         serviceProvider.setApplicationName(request.getParameter("spName"));
         serviceProvider.setDescription(request.getParameter("sp-description"));
 
+        // Check if isSystemDefaultApp property is already set.
+        boolean isSystemReservedAppPropExist = false;
+        for (ServiceProviderProperty property : serviceProvider.getSpProperties()) {
+            if (IS_SYSTEM_RESERVED_APP_FLAG.equals(property.getName())) {
+                isSystemReservedAppPropExist = true;
+                break;
+            }
+        }
+        if (LOCAL_SP.equals(request.getParameter(SP_NAME)) && !isSystemReservedAppPropExist) {
+            ServiceProviderProperty serviceProviderProperty = new ServiceProviderProperty();
+            serviceProviderProperty.setName(IS_SYSTEM_RESERVED_APP_FLAG);
+            serviceProviderProperty.setValue(String.valueOf(true));
+            serviceProviderProperty.setDisplayName(IS_SYSTEM_RESERVED_APP_DISPLAY_NAME);
+            serviceProvider.addSpProperties(serviceProviderProperty);
+        }
         String provisioningUserStore = request.getParameter("scim-inbound-userstore");
         InboundProvisioningConfig inBoundProConfig = new InboundProvisioningConfig();
         inBoundProConfig.setProvisioningUserStore(provisioningUserStore);

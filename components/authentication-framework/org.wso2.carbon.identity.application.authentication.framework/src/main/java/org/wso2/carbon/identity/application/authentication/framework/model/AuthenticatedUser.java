@@ -1,7 +1,7 @@
 /*
- * Copyright (c) 2013, WSO2 Inc. (http://www.wso2.org) All Rights Reserved.
+ * Copyright (c) 2013-2024, WSO2 LLC. (http://www.wso2.com).
  *
- * WSO2 Inc. licenses this file to you under the Apache License,
+ * WSO2 LLC. licenses this file to you under the Apache License,
  * Version 2.0 (the "License"); you may not use this file except
  * in compliance with the License.
  * You may obtain a copy of the License at
@@ -30,6 +30,7 @@ import org.wso2.carbon.identity.application.authentication.framework.util.Framew
 import org.wso2.carbon.identity.application.common.model.ClaimMapping;
 import org.wso2.carbon.identity.application.common.model.ServiceProvider;
 import org.wso2.carbon.identity.application.common.model.User;
+import org.wso2.carbon.identity.central.log.mgt.utils.LoggerUtils;
 import org.wso2.carbon.identity.core.util.IdentityTenantUtil;
 import org.wso2.carbon.identity.core.util.IdentityUtil;
 import org.wso2.carbon.user.core.util.UserCoreUtil;
@@ -60,7 +61,11 @@ public class AuthenticatedUser extends User {
     private String authenticatedSubjectIdentifier;
     private String federatedIdPName;
     private boolean isFederatedUser;
+    private String accessingOrganization;
+    private String userResidentOrganization;
     private Map<ClaimMapping, String> userAttributes = new HashMap<>();
+    private String sharedUserId;
+    private String userSharedOrganizationId;
 
     /**
      * Instantiates an AuthenticatedUser
@@ -96,6 +101,8 @@ public class AuthenticatedUser extends User {
         if (!isFederatedUser && StringUtils.isNotEmpty(userStoreDomain) && StringUtils.isNotEmpty(tenantDomain)) {
             updateCaseSensitivity();
         }
+        this.accessingOrganization = authenticatedUser.getAccessingOrganization();
+        this.userResidentOrganization = authenticatedUser.getUserResidentOrganization();
     }
 
     public AuthenticatedUser(org.wso2.carbon.user.core.common.User user) {
@@ -310,6 +317,11 @@ public class AuthenticatedUser extends User {
         return this.userId;
     }
 
+    public boolean isUserIdExists() {
+
+        return this.userId != null;
+    }
+
     public void setUserId(String userId) {
 
         this.userId = userId;
@@ -327,23 +339,62 @@ public class AuthenticatedUser extends User {
             if (log.isDebugEnabled()) {
                 log.debug("Trying to resolve the user id for the federated user: " + toFullQualifiedUsername());
             }
+            // The federated users from the organization SSO flow will have the user-id set as the username.
+            if (this.isOrganizationUser()) {
+                return this.getUserName();
+            }
             userId = this.getFederatedUserIdInternal();
         }
 
         return userId;
     }
 
+    /**
+     * Returns the user id of the authenticated user.
+     * If the user id is not available, it will return the fully qualified username.
+     *
+     * @return the user id of the authenticated user.
+     * @deprecated use {@link #getLoggableMaskedUserId()}
+     */
+    @Deprecated
+    @Override
     public String getLoggableUserId() {
 
         if (userId != null) {
             return userId;
         }
 
-        // User id can be null sometimes in some flows. Hence trying to resolve it here.
+        // User id can be null sometimes in some flows. Hence, trying to resolve it here.
         String loggableUserId = resolveUserIdInternal();
         if (loggableUserId == null) {
             // If the user id is still null, lets get the fully qualified username as the user id for logging purposes.
             loggableUserId = toFullQualifiedUsername();
+        }
+        return loggableUserId;
+    }
+
+    /**
+     * Returns the user id of the authenticated user.
+     * If the user id is not available, it will return the fully qualified username. Masked username is returned if
+     * masking is enabled.
+     *
+     * @return the user id of the authenticated user.
+     */
+    @Override
+    public String getLoggableMaskedUserId() {
+
+        if (userId != null) {
+            return userId;
+        }
+
+        // User id can be null sometimes in some flows. Hence, trying to resolve it here.
+        String loggableUserId = resolveUserIdInternal();
+        if (loggableUserId == null) {
+            // If the user id is still null, lets get the fully qualified username as the user id for logging purposes.
+            loggableUserId = toFullQualifiedUsername();
+            if (LoggerUtils.isLogMaskingEnable) {
+                loggableUserId = LoggerUtils.getMaskedContent(loggableUserId);
+            }
         }
         return loggableUserId;
     }
@@ -359,23 +410,7 @@ public class AuthenticatedUser extends User {
     public void setAuthenticatedSubjectIdentifier(String authenticatedSubjectIdentifier,
                                                   ServiceProvider serviceProvider) {
 
-        if (!isFederatedUser() && serviceProvider != null) {
-            boolean useUserstoreDomainInLocalSubjectIdentifier
-                    = serviceProvider.getLocalAndOutBoundAuthenticationConfig()
-                    .isUseUserstoreDomainInLocalSubjectIdentifier();
-            boolean useTenantDomainInLocalSubjectIdentifier
-                    = serviceProvider.getLocalAndOutBoundAuthenticationConfig()
-                    .isUseTenantDomainInLocalSubjectIdentifier();
-            if (useUserstoreDomainInLocalSubjectIdentifier && StringUtils.isNotEmpty(userStoreDomain)) {
-                authenticatedSubjectIdentifier = IdentityUtil.addDomainToName(userName, userStoreDomain);
-            }
-            if (useTenantDomainInLocalSubjectIdentifier && StringUtils.isNotEmpty(tenantDomain) &&
-                    StringUtils.isNotEmpty(authenticatedSubjectIdentifier)) {
-                authenticatedSubjectIdentifier = UserCoreUtil.addTenantDomainToEntry(authenticatedSubjectIdentifier,
-                        tenantDomain);
-            }
-        }
-        this.authenticatedSubjectIdentifier = authenticatedSubjectIdentifier;
+        setAuthenticatedSubjectIdentifier(authenticatedSubjectIdentifier);
     }
 
     /**
@@ -443,6 +478,38 @@ public class AuthenticatedUser extends User {
         this.federatedIdPName = federatedIdPName;
     }
 
+
+    public String getAccessingOrganization() {
+
+        return accessingOrganization;
+    }
+
+    public void setAccessingOrganization(String accessingOrganization) {
+
+        this.accessingOrganization = accessingOrganization;
+    }
+
+    public String getUserResidentOrganization() {
+
+        return userResidentOrganization;
+    }
+
+    public void setUserResidentOrganization(String userResidentOrganization) {
+
+        this.userResidentOrganization = userResidentOrganization;
+    }
+
+    /**
+     * Returns whether this user's identity is managed by an organization or not. A user who has been federated login
+     * from an internal organization is considered as an organization user.
+     *
+     * @return isOrganizationUser
+     */
+    public boolean isOrganizationUser() {
+
+        return this.isFederatedUser && StringUtils.isNotBlank(this.getUserResidentOrganization());
+    }
+
     @Override
     public boolean equals(Object o) {
 
@@ -502,5 +569,25 @@ public class AuthenticatedUser extends User {
             return authenticatedSubjectIdentifier;
         }
         return super.toString();
+    }
+
+    public String getSharedUserId() {
+
+        return sharedUserId;
+    }
+
+    public void setSharedUserId(String sharedUserId) {
+
+        this.sharedUserId = sharedUserId;
+    }
+
+    public String getUserSharedOrganizationId() {
+
+        return userSharedOrganizationId;
+    }
+
+    public void setUserSharedOrganizationId(String sharedUserOrganizationId) {
+
+        this.userSharedOrganizationId = sharedUserOrganizationId;
     }
 }

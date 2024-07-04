@@ -26,6 +26,7 @@
 <%@page import="java.text.MessageFormat" %>
 <%@ page import="org.owasp.encoder.Encode" %>
 <%@ page import="org.apache.axis2.context.ConfigurationContext" %>
+<%@ page import="org.apache.commons.lang.StringUtils" %>
 <%@ page import="org.wso2.carbon.CarbonConstants" %>
 <%@ page import="org.wso2.carbon.identity.claim.metadata.mgt.stub.dto.ExternalClaimDTO" %>
 <%@ page import="org.wso2.carbon.identity.claim.metadata.mgt.ui.client.ClaimMetadataAdminClient" %>
@@ -46,12 +47,14 @@
         return;
     }
 
+    int maxAttributesMappings = 1000;
+    int maxClaimProperties = 1000;
     String serverURL = CarbonUIUtil.getServerURL(config.getServletContext(), session);
     ConfigurationContext configContext = (ConfigurationContext)
             config.getServletContext().getAttribute(CarbonConstants.CONFIGURATION_CONTEXT);
     String cookie = (String) session.getAttribute(ServerConstants.ADMIN_SERVICE_COOKIE);
 
-    String localClaimURI = request.getParameter("localClaimURI");
+    String localClaimURI = StringUtils.trim(request.getParameter("localClaimURI"));
     int numberOfAttributeMappings = Integer.parseInt(request.getParameter("number_of_AttributeMappings"));
     int numberOfClaimProperties = Integer.parseInt(request.getParameter("number_of_ClaimProperties"));
     String displayName = request.getParameter("displayName");
@@ -62,12 +65,17 @@
     String required = request.getParameter("requiredhidden");
     String readonly = request.getParameter("readonlyhidden");
 
+    if (maxAttributesMappings < numberOfAttributeMappings || maxClaimProperties < numberOfClaimProperties) {
+        response.sendError(HttpServletResponse.SC_BAD_REQUEST);
+        return;
+    }
+
     List<AttributeMappingDTO> attributeMappings = new ArrayList();
 
     for (int i = 0; i < numberOfAttributeMappings; i++) {
 
         String userStoreDomain = request.getParameter("userstore_" + i);
-        String mappedAttribute = request.getParameter("attribute_" + i);
+        String mappedAttribute = StringUtils.trim(request.getParameter("attribute_" + i));
 
         if (StringUtils.isNotBlank(userStoreDomain) && StringUtils.isNotBlank(mappedAttribute)) {
 

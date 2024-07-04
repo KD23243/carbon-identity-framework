@@ -40,18 +40,18 @@ public class IdentityManagementEndpointConstants {
 
     public static final class ServiceEndpoints {
         public static final String USER_REGISTRATION_SERVICE = "/UserRegistrationAdminService" +
-                                                               ".UserRegistrationAdminServiceHttpsSoap11Endpoint/";
+                ".UserRegistrationAdminServiceHttpsSoap11Endpoint/";
         public static final String USER_INFORMATION_RECOVERY_SERVICE = "/UserInformationRecoveryService" +
-                                                                       ".UserInformationRecoveryServiceHttpsSoap11Endpoint/";
-
+                ".UserInformationRecoveryServiceHttpsSoap11Endpoint/";
         public static final String USER_IDENTITY_MANAGEMENT_SERVICE = "/UserIdentityManagementAdminService" +
-                                                                      ".UserIdentityManagementAdminServiceHttpsSoap11Endpoint/";
+                ".UserIdentityManagementAdminServiceHttpsSoap11Endpoint/";
         public static final String IDENTITY_PROVIDER_MANAGEMENT_SERVICE = "/IdentityProviderMgtService" +
-                                                                      ".IdentityProviderMgtServiceHttpsSoap11Endpoint/";
+                ".IdentityProviderMgtServiceHttpsSoap11Endpoint/";
     }
 
     public static final class PasswordRecoveryOptions {
         public static final String EMAIL = "EMAIL";
+        public static final String SMSOTP = "SMSOTP";
         public static final String SECURITY_QUESTIONS = "SECURITY_QUESTIONS";
     }
 
@@ -71,6 +71,7 @@ public class IdentityManagementEndpointConstants {
         public static final String REST_API_URL_DOMAIN = "account-recovery";
         public static final String RECOVERY_API_RELATIVE_PATH = "/api/identity/recovery/v0.9";
         public static final String RECOVERY_API_V1_RELATIVE_PATH = "/api/users/v1/recovery";
+        public static final String RECOVERY_API_V2_RELATIVE_PATH = "/api/users/v2/recovery";
         public static final String USER_API_RELATIVE_PATH = "/api/identity/user/v1.0";
         public static final String RECOVERY_CALLBACK_REGEX = "Recovery.CallbackRegex";
     }
@@ -91,6 +92,7 @@ public class IdentityManagementEndpointConstants {
     public static final String SUPER_TENANT = "carbon.super";
     public static final String PRIMARY_USER_STORE_DOMAIN = "PRIMARY";
     public static final String TENANT_DOMAIN = "tenantdomain";
+    public static final String REALM = "realm";
 
     public static final String TENANT_DOMAIN_SEPARATOR = "@";
     public static final String USER_STORE_DOMAIN_SEPARATOR = "/";
@@ -102,6 +104,7 @@ public class IdentityManagementEndpointConstants {
     public static final String My_ACCOUNT_APPLICATION_NAME = "My Account";
     public static final String CONSOLE_APPLICATION_NAME = "Console";
     public static final String USER_TENANT_HINT_PLACE_HOLDER = "${UserTenantHint}";
+    public static final String ORGANIZATION_ID_HINT_PLACE_HOLDER = "${organizationIdHint}";
 
     public static final String RELATIVE_PATH_START_CHAR = ".";
     public static final String SERVICE_CONFIG_RELATIVE_PATH =
@@ -117,6 +120,10 @@ public class IdentityManagementEndpointConstants {
     public static final String UTF_8 = "UTF-8";
 
     public static final String CALLBACK = "callback";
+
+    public static final String SERVICE_CONTEXT_PATH = "/services";
+
+    public static final String ERROR_CODE_INVALID_TENANT = "60001";
 
     public static class Consent {
 

@@ -1,19 +1,19 @@
 /*
- *  Copyright (c) 2018, WSO2 Inc. (http://www.wso2.org) All Rights Reserved.
+ * Copyright (c) 2024, WSO2 LLC. (http://www.wso2.com).
  *
- *  WSO2 Inc. licenses this file to you under the Apache License,
- *  Version 2.0 (the "License"); you may not use this file except
- *  in compliance with the License.
- *  You may obtain a copy of the License at
+ * WSO2 LLC. licenses this file to you under the Apache License,
+ * Version 2.0 (the "License"); you may not use this file except
+ * in compliance with the License.
+ * You may obtain a copy of the License at
  *
- *  http://www.apache.org/licenses/LICENSE-2.0
+ * http://www.apache.org/licenses/LICENSE-2.0
  *
- *  Unless required by applicable law or agreed to in writing,
- *  software distributed under the License is distributed on an
- *  "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
- *  KIND, either express or implied.  See the License for the
- *  specific language governing permissions and limitations
- *  under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
  */
 
 package org.wso2.carbon.identity.application.authentication.framework.config.model.graph.js;
@@ -25,6 +25,7 @@ import org.wso2.carbon.identity.application.authentication.framework.Application
 import org.wso2.carbon.identity.application.authentication.framework.config.ConfigurationFacade;
 import org.wso2.carbon.identity.application.authentication.framework.config.model.ExternalIdPConfig;
 import org.wso2.carbon.identity.application.authentication.framework.config.model.StepConfig;
+import org.wso2.carbon.identity.application.authentication.framework.config.model.graph.js.base.JsBaseClaims;
 import org.wso2.carbon.identity.application.authentication.framework.context.AuthenticationContext;
 import org.wso2.carbon.identity.application.authentication.framework.exception.UserIdNotFoundException;
 import org.wso2.carbon.identity.application.authentication.framework.internal.FrameworkServiceDataHolder;
@@ -42,6 +43,7 @@ import org.wso2.carbon.idp.mgt.IdentityProviderManagementException;
 import org.wso2.carbon.idp.mgt.IdentityProviderManager;
 import org.wso2.carbon.user.api.UserRealm;
 import org.wso2.carbon.user.api.UserStoreException;
+import org.wso2.carbon.user.core.UserStoreClientException;
 import org.wso2.carbon.user.core.claim.Claim;
 import org.wso2.carbon.user.core.common.AbstractUserStoreManager;
 import org.wso2.carbon.user.core.service.RealmService;
@@ -52,9 +54,9 @@ import java.util.Map;
 import java.util.Optional;
 
 /**
- * Represent the user's claim. Can be either remote or local.
+ * Represent the user's claim for Javascript Execution. This contains the common methods for all script engines.
  */
-public class JsClaims extends AbstractJSContextMemberObject {
+public abstract class JsClaims extends AbstractJSContextMemberObject implements JsBaseClaims {
 
     private static final Log LOG = LogFactory.getLog(JsClaims.class);
     private String idp;
@@ -63,7 +65,7 @@ public class JsClaims extends AbstractJSContextMemberObject {
     protected transient AuthenticatedUser authenticatedUser;
 
     /**
-     * Constructor to get the user authenticated in step 'n'
+     * Constructor to get the user authenticated in step 'n'.
      *
      * @param step                 The authentication step
      * @param idp                  The authenticated IdP
@@ -80,6 +82,10 @@ public class JsClaims extends AbstractJSContextMemberObject {
         this.isRemoteClaimRequest = isRemoteClaimRequest;
         this.idp = idp;
         this.step = step;
+    }
+
+    public JsClaims() {
+
     }
 
     @Override
@@ -128,14 +134,13 @@ public class JsClaims extends AbstractJSContextMemberObject {
             return subjectIdentifierStep.get();
         } else if (getContext().getCurrentStep() > 0) {
             return stepConfigs.get(getContext().getCurrentStep());
-        } else {
-            return null;
         }
+        return null;
     }
 
     /**
-     * Constructor to get user who is not directly from a authentication step. Eg. Associated user of authenticated
-     * federated user in a authentication step.
+     * Constructor to get user who is not directly from an authentication step. E.g. Associated user of authenticated
+     * federated user in an authentication step.
      *
      * @param authenticatedUser    Authenticated user
      * @param isRemoteClaimRequest Whether the request is for remote claim (false for local claim request)
@@ -152,7 +157,6 @@ public class JsClaims extends AbstractJSContextMemberObject {
         initializeContext(context);
     }
 
-    @Override
     public Object getMember(String claimUri) {
 
         if (authenticatedUser != null) {
@@ -165,7 +169,6 @@ public class JsClaims extends AbstractJSContextMemberObject {
         return null;
     }
 
-    @Override
     public boolean hasMember(String claimUri) {
 
         if (authenticatedUser != null) {
@@ -178,19 +181,17 @@ public class JsClaims extends AbstractJSContextMemberObject {
         return false;
     }
 
-    @Override
-    public void setMember(String claimUri, Object claimValue) {
+    public boolean setMemberObject(String claimUri, Object claimValue) {
 
         if (authenticatedUser != null) {
             if (isRemoteClaimRequest) {
-                setFederatedClaim(claimUri, claimValue);
-                return;
+                setFederatedClaim(claimUri, String.valueOf(claimValue));
             } else {
-                setLocalClaim(claimUri, claimValue);
-                return;
+                setLocalClaim(claimUri, String.valueOf(claimValue));
             }
+            return true;
         }
-        super.setMember(claimUri, claimValue);
+        return false;
     }
 
     /**
@@ -199,35 +200,35 @@ public class JsClaims extends AbstractJSContextMemberObject {
      * @param claimUri   Local claim URI
      * @param claimValue Claim Value
      */
-    private void setLocalClaim(String claimUri, Object claimValue) {
+    private void setLocalClaim(String claimUri, String claimValue) {
 
         if (isFederatedIdP()) {
             setLocalMappedClaim(claimUri, claimValue);
         } else {
-            // This covers step with a local authenticator, and the scenarios where step/idp is not set
-            // if the step/idp is not set, user is assumed to be a local user
+            /* This covers step with a local authenticator, and the scenarios where step/idp is not set
+             if the step/idp is not set, user is assumed to be a local user. */
             setLocalUserClaim(claimUri, claimValue);
         }
     }
 
     /**
-     * Sets the remote claim value that is mapped to the give local claim
+     * Sets the remote claim value that is mapped to the give local claim.
      *
      * @param localClaimURI Local claim URI
      * @param claimValue    Value to be set
      */
-    private void setLocalMappedClaim(String localClaimURI, Object claimValue) {
+    private void setLocalMappedClaim(String localClaimURI, String claimValue) {
 
         Map<ClaimMapping, String> idpAttributesMap = authenticatedUser.getUserAttributes();
         Map<String, String> remoteMapping = FrameworkUtils.getClaimMappings(idpAttributesMap, false);
         String mappedRemoteClaim = getRemoteClaimMappedToLocalClaim(localClaimURI, remoteMapping);
         if (mappedRemoteClaim != null) {
-            setFederatedClaim(mappedRemoteClaim, String.valueOf(claimValue));
+            setFederatedClaim(mappedRemoteClaim, claimValue);
         }
     }
 
     /**
-     * Sets a local claim directly at the userstore for the given user by given claim uri
+     * Sets a local claim directly at the userstore for the given user by given claim uri.
      *
      * @param claimUri   Local claim URI
      * @param claimValue Claim value
@@ -242,16 +243,21 @@ public class JsClaims extends AbstractJSContextMemberObject {
             claimUriMap.put(claimUri, String.valueOf(claimValue));
             ((AbstractUserStoreManager) userRealm.getUserStoreManager())
                     .setUserClaimValuesWithID(authenticatedUser.getUserId(), claimUriMap, null);
+        } catch (UserStoreClientException e) {
+            if (LOG.isDebugEnabled()) {
+                LOG.debug(String.format("Error when setting claim : %s of user: %s to value: %s. Error Message: %s",
+                        claimUri, authenticatedUser, claimValue, e.getMessage()));
+            }
         } catch (UserStoreException e) {
             LOG.error(String.format("Error when setting claim : %s of user: %s to value: %s", claimUri,
-                    authenticatedUser, String.valueOf(claimValue)), e);
+                    authenticatedUser, claimValue), e);
         } catch (UserIdNotFoundException e) {
-            LOG.error("User id is not available for the user: " + authenticatedUser.getLoggableUserId(), e);
+            LOG.error("User id is not available for the user: " + authenticatedUser.getLoggableMaskedUserId(), e);
         }
     }
 
     /**
-     * Gets the remote claim that is mapped to the given local claim
+     * Gets the remote claim that is mapped to the given local claim.
      *
      * @param localClaim      local claim URI
      * @param remoteClaimsMap Remote claim URI - value map
@@ -260,13 +266,14 @@ public class JsClaims extends AbstractJSContextMemberObject {
     private String getRemoteClaimMappedToLocalClaim(String localClaim, Map<String, String> remoteClaimsMap) {
 
         String authenticatorDialect = null;
-        Map<String, String> localToIdpClaimMapping = null;
+        Map<String, String> localToIdpClaimMapping;
         String tenantDomain = getContext().getTenantDomain();
         try {
-            // Check if the IDP use an standard dialect (like oidc), If it does, dialect claim mapping are
-            // prioritized over IdP claim mapping
-            ApplicationAuthenticator authenticator = getContext().getSequenceConfig().getStepMap().get(step)
-                    .getAuthenticatedAutenticator().getApplicationAuthenticator();
+            /* Check if the IDP use a standard dialect (like oidc), If it does, dialect claim mapping are
+             prioritized over IdP claim mapping. */
+            ApplicationAuthenticator authenticator =
+                    getContext().getSequenceConfig().getStepMap().get(step).getAuthenticatedAutenticator()
+                            .getApplicationAuthenticator();
             authenticatorDialect = authenticator.getClaimDialectURI();
             ExternalIdPConfig idPConfig = ConfigurationFacade.getInstance().getIdPConfigByName(idp, tenantDomain);
             boolean useDefaultIdpDialect = idPConfig.useDefaultLocalIdpDialect();
@@ -275,13 +282,12 @@ public class JsClaims extends AbstractJSContextMemberObject {
                 if (authenticatorDialect == null) {
                     authenticatorDialect = ApplicationConstants.LOCAL_IDP_DEFAULT_CLAIM_DIALECT;
                 }
-                localToIdpClaimMapping = ClaimMetadataHandler.getInstance().getMappingsMapFromOtherDialectToCarbon
-                        (authenticatorDialect, remoteClaimsMap.keySet(), tenantDomain, true);
+                localToIdpClaimMapping = ClaimMetadataHandler.getInstance()
+                        .getMappingsMapFromOtherDialectToCarbon(authenticatorDialect, remoteClaimsMap.keySet(),
+                                tenantDomain, true);
             } else {
-                localToIdpClaimMapping = IdentityProviderManager.getInstance().getMappedIdPClaimsMap
-                        (idp, tenantDomain, Collections
-                                .singletonList(localClaim));
-
+                localToIdpClaimMapping = IdentityProviderManager.getInstance()
+                        .getMappedIdPClaimsMap(idp, tenantDomain, Collections.singletonList(localClaim));
             }
             if (localToIdpClaimMapping != null) {
                 return localToIdpClaimMapping.get(localClaim);
@@ -295,38 +301,14 @@ public class JsClaims extends AbstractJSContextMemberObject {
         return null;
     }
 
-    /**
-     * Check if the user has a federated claim with given name.
-     *
-     * @param claimUri Federated claim URI
-     * @return <code>true</code> if the IdP is federated and it has a claim for user with given URI.
-     * <code>false</code> otherwise
-     */
-    protected boolean hasFederatedClaim(String claimUri) {
-
-        if (isFederatedIdP()) {
-            Map<ClaimMapping, String> attributesMap = authenticatedUser.getUserAttributes();
-            Map<String, String> remoteMapping = FrameworkUtils.getClaimMappings(attributesMap, false);
-            return remoteMapping.containsKey(claimUri);
-        }
-        // Can be a case where step is not set (e.g. associated local user)
-        return false;
-    }
-
-    /**
-     * Check if there is a local claim by given name.
-     *
-     * @param claimUri The local claim URI
-     * @return Claim value of the user authenticated by the indicated IdP
-     */
     protected boolean hasLocalClaim(String claimUri) {
 
         int usersTenantId = IdentityTenantUtil.getTenantId(authenticatedUser.getTenantDomain());
         RealmService realmService = FrameworkServiceDataHolder.getInstance().getRealmService();
         try {
             UserRealm userRealm = realmService.getTenantUserRealm(usersTenantId);
-            Claim[] supportedClaims = IdentityClaimManager.getInstance().getAllSupportedClaims((org.wso2.carbon.user
-                .core.UserRealm) userRealm);
+            Claim[] supportedClaims = IdentityClaimManager.getInstance()
+                    .getAllSupportedClaims((org.wso2.carbon.user.core.UserRealm) userRealm);
             for (Claim claim : supportedClaims) {
                 if (claim.getClaimUri().equals(claimUri)) {
                     return true;
@@ -337,6 +319,24 @@ public class JsClaims extends AbstractJSContextMemberObject {
         } catch (IdentityException e) {
             LOG.error("Error when initializing identity claim manager.", e);
         }
+        return false;
+    }
+
+    /**
+     * Check if the user has a federated claim with given name.
+     *
+     * @param claimUri Federated claim URI
+     * @return <code>true</code> if the IdP is federated, and it has a claim for user with given URI.
+     * <code>false</code> otherwise
+     */
+    protected boolean hasFederatedClaim(String claimUri) {
+
+        if (isFederatedIdP()) {
+            Map<ClaimMapping, String> attributesMap = authenticatedUser.getUserAttributes();
+            Map<String, String> remoteMapping = FrameworkUtils.getClaimMappings(attributesMap, false);
+            return remoteMapping.containsKey(claimUri);
+        }
+        // Can be a case where step is not set (e.g. associated local user)
         return false;
     }
 
@@ -369,15 +369,14 @@ public class JsClaims extends AbstractJSContextMemberObject {
 
         if (isFederatedIdP()) {
             return getLocalMappedClaim(claimUri);
-        } else {
-            // This covers step with a local authenticator, and the scenarios where step/idp is not set
-            // if the step/idp is not set, user is assumed to be a local user
-            return getLocalUserClaim(claimUri);
         }
+        /* This covers step with a local authenticator, and the scenarios where step/idp is not set
+        if the step/idp is not set, user is assumed to be a local user. */
+        return getLocalUserClaim(claimUri);
     }
 
     /**
-     * Check if step's IdP is a federated IDP
+     * Check if step's IdP is a federated IDP.
      *
      * @return true if the idp is federated
      */
@@ -392,17 +391,17 @@ public class JsClaims extends AbstractJSContextMemberObject {
      * @param claimUri   Remote claim uri
      * @param claimValue Claim value
      */
-    private void setFederatedClaim(String claimUri, Object claimValue) {
+    private void setFederatedClaim(String claimUri, String claimValue) {
 
         if (claimValue == null) {
             claimValue = StringUtils.EMPTY;
         }
         ClaimMapping newClaimMapping = ClaimMapping.build(claimUri, claimUri, null, false);
-        authenticatedUser.getUserAttributes().put(newClaimMapping, String.valueOf(claimValue));
+        authenticatedUser.getUserAttributes().put(newClaimMapping, claimValue);
     }
 
     /**
-     * Gets the mapped remote claim value for the given local claim URI
+     * Gets the mapped remote claim value for the given local claim URI.
      *
      * @param claimUri Local claim URI
      * @return Mapped remote claim value from IdP
@@ -438,8 +437,40 @@ public class JsClaims extends AbstractJSContextMemberObject {
         } catch (UserStoreException e) {
             LOG.error(String.format("Error when getting claim : %s of user: %s", claimUri, authenticatedUser), e);
         } catch (UserIdNotFoundException e) {
-            LOG.error("User id is not available for the user: " + authenticatedUser.getLoggableUserId(), e);
+            LOG.error("User id is not available for the user: " + authenticatedUser.getLoggableMaskedUserId(), e);
         }
         return null;
+    }
+
+    protected Object getRuntimeClaim(String claimUri) {
+
+        String runtimeClaimValue = getContext().getRuntimeClaim(claimUri);
+        if (runtimeClaimValue != null) {
+            return runtimeClaimValue;
+        }
+        if (isFederatedIdP()) {
+            return getFederatedClaim(claimUri);
+        }
+        return getLocalClaim(claimUri);
+    }
+
+    protected boolean hasRuntimeClaim(String claimUri) {
+
+        String claim = getContext().getRuntimeClaim(claimUri);
+        if (claim != null) {
+            return true;
+        }
+        if (isFederatedIdP()) {
+            return hasFederatedClaim(claimUri);
+        }
+        return hasLocalClaim(claimUri);
+    }
+
+    protected void setRuntimeClaim(String claimUri, Object claimValue) {
+
+        if (claimValue == null) {
+            claimValue = StringUtils.EMPTY;
+        }
+        getContext().addRuntimeClaim(claimUri, String.valueOf(claimValue));
     }
 }

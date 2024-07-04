@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017, WSO2 Inc. (http://www.wso2.org) All Rights Reserved.
+ * Copyright (c) 2017, WSO2 LLC. (http://www.wso2.org) All Rights Reserved.
  *
  * WSO2 Inc. licenses this file to you under the Apache License,
  * Version 2.0 (the "License"); you may not use this file except
@@ -18,11 +18,10 @@
 
 package org.wso2.carbon.identity.application.authentication.framework;
 
-import jdk.nashorn.api.scripting.JSObject;
+import org.graalvm.polyglot.HostAccess;
 import org.wso2.carbon.identity.application.authentication.framework.context.AuthenticationContext;
 
 import java.io.Serializable;
-import java.util.function.Function;
 
 /**
  * Definition for dynamic Authentication Decision evaluation.
@@ -41,5 +40,6 @@ public interface AuthenticationDecisionEvaluator extends Serializable {
      * @param context
      * @return
      */
-    Object evaluate(AuthenticationContext context, Function<JSObject, Object> jsConsumer);
+    @HostAccess.Export
+    Object evaluate(AuthenticationContext context, Object... params);
 }

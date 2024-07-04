@@ -1,7 +1,7 @@
 <!--
-~ Copyright (c) 2019, WSO2 Inc. (http://www.wso2.org) All Rights Reserved.
+~ Copyright (c) 2019, WSO2 LLC. (http://www.wso2.org) All Rights Reserved.
 ~
-~ Licensed under the Apache License, Version 2.0 (the "License");
+~ WSO2 LLC. licenses this file to you under the Apache License, Version 2.0 (the "License");
 ~ you may not use this file except in compliance with the License.
 ~ You may obtain a copy of the License at
 ~
@@ -43,6 +43,7 @@
     boolean isOIDCEnabled = Boolean.parseBoolean(request.getParameter("isOIDCEnabled"));
     boolean isOIDCDefault = Boolean.parseBoolean(request.getParameter("isOIDCDefault"));
     boolean isOIDCBasicAuthEnabled = false;
+    boolean isOIDCPKCEEnabled = false;
     String clientId = null;
     String clientSecret = null;
     String authzUrl = null;
@@ -51,6 +52,7 @@
     String userInfoEndpoint = null;
     String logoutUrlOIDC = null;
     boolean isOIDCUserIdInClaims = false;
+    String scopes = StringUtils.EMPTY;
     String oidcQueryParam = StringUtils.EMPTY;
     
     Map<String, UUID> idpUniqueIdMap = (Map<String, UUID>)session.getAttribute(
@@ -116,8 +118,13 @@
                     if (isOIDCUserIdInClaimsProp != null) {
                         isOIDCUserIdInClaims = Boolean.parseBoolean(isOIDCUserIdInClaimsProp.getValue());
                     }
+                    Property scopesProp = IdPManagementUIUtil.getProperty(fedAuthnConfig.getProperties(),
+                             OIDC.SCOPES);
+                    if (scopesProp != null) {
+                        scopes = scopesProp.getValue();
+                    }
                     Property queryParamProp = IdPManagementUIUtil.getProperty(fedAuthnConfig.getProperties(),
-                            "commonAuthQueryParams");
+                            OIDC.QUERY_PARAMS);
                     if (queryParamProp != null) {
                         oidcQueryParam = queryParamProp.getValue();
                     }
@@ -125,6 +132,11 @@
                             OIDC.IS_BASIC_AUTH_ENABLED);
                     if (basicAuthEnabledProp != null) {
                         isOIDCBasicAuthEnabled = Boolean.parseBoolean(basicAuthEnabledProp.getValue());
+                    }
+                    Property pkceEnabledProp = IdPManagementUIUtil.getProperty(fedAuthnConfig.getProperties(),
+                            OIDC.IS_PKCE_ENABLED);
+                    if (pkceEnabledProp != null) {
+                        isOIDCPKCEEnabled = Boolean.parseBoolean(pkceEnabledProp.getValue());
                     }
                 }
             }
@@ -176,8 +188,18 @@
     if (isOIDCBasicAuthEnabled) {
         oidcBasicAuthEnabledChecked = "checked=\'checked\'";
     }
+    if (scopes == null) {
+        scopes = StringUtils.EMPTY;
+    }
+    String oidcPKCEEnabledChecked = StringUtils.EMPTY;
+    if (isOIDCPKCEEnabled) {
+        oidcPKCEEnabledChecked = "checked=\'checked\'";
+    }
     if (oidcQueryParam == null) {
         oidcQueryParam = StringUtils.EMPTY;
+    }
+    if (StringUtils.isBlank(scopes) && !oidcQueryParam.toLowerCase().contains("scope=")) {
+       scopes = "openid";
     }
     
 %>
@@ -334,6 +356,17 @@
                 </td>
             </tr>
             <tr>
+                <td class="leftCol-med labelField"><fmt:message key='scopes'/>:</td>
+                <td>
+                    <input id="scopes" name="scopes" type="text"
+                           value="<%=Encode.forHtmlAttribute(scopes)%>">
+
+                    <div class="sectionHelp">
+                        <fmt:message key='scopes.help'/>
+                    </div>
+                </td>
+            </tr>
+            <tr>
                 <td class="leftCol-med labelField"><fmt:message key='query.param'/>:</td>
                 <td>
                     <input id="oidcQueryParam" name="oidcQueryParam" type="text"
@@ -352,6 +385,18 @@
                                type="checkbox" <%=oidcBasicAuthEnabledChecked%> />
                         <span style="display:inline-block" class="sectionHelp">
                                     <fmt:message key='oidc.enable.basicauth.help'/>
+                        </span>
+                    </div>
+                </td>
+            </tr>
+            <tr>
+                <td class="leftCol-med labelField"><fmt:message key='oidc.enable.pkce'/>:</td>
+                <td>
+                    <div class="sectionCheckbox">
+                        <input id="oidcPKCEEnabled" name="oidcPKCEEnabled"
+                               type="checkbox" <%=oidcPKCEEnabledChecked%> />
+                        <span style="display:inline-block" class="sectionHelp">
+                                    <fmt:message key='oidc.enable.pkce.help'/>
                         </span>
                     </div>
                 </td>

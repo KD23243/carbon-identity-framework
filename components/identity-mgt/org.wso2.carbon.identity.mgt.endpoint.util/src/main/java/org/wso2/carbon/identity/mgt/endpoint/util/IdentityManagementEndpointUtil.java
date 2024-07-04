@@ -24,6 +24,7 @@ import org.apache.axiom.om.util.Base64;
 import org.apache.axis2.client.ServiceClient;
 import org.apache.commons.collections.MapUtils;
 import org.apache.commons.lang.ArrayUtils;
+import org.apache.commons.lang.StringEscapeUtils;
 import org.apache.commons.lang.StringUtils;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
@@ -33,11 +34,17 @@ import org.apache.cxf.jaxrs.client.JAXRSClientFactoryBean;
 import org.json.JSONArray;
 import org.json.JSONObject;
 import org.owasp.encoder.Encode;
+import org.wso2.carbon.CarbonConstants;
 import org.wso2.carbon.base.MultitenantConstants;
+import org.wso2.carbon.core.SameSiteCookie;
+import org.wso2.carbon.identity.application.authentication.framework.util.FrameworkConstants;
 import org.wso2.carbon.identity.base.IdentityRuntimeException;
 import org.wso2.carbon.identity.core.ServiceURLBuilder;
 import org.wso2.carbon.identity.core.URLBuilderException;
+import org.wso2.carbon.identity.core.model.CookieBuilder;
+import org.wso2.carbon.identity.core.model.IdentityCookieConfig;
 import org.wso2.carbon.identity.core.util.IdentityTenantUtil;
+import org.wso2.carbon.identity.core.util.IdentityUtil;
 import org.wso2.carbon.identity.mgt.endpoint.util.client.ApiException;
 import org.wso2.carbon.identity.mgt.endpoint.util.client.ApplicationDataRetrievalClient;
 import org.wso2.carbon.identity.mgt.endpoint.util.client.ApplicationDataRetrievalClientException;
@@ -70,6 +77,7 @@ import java.util.StringTokenizer;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpServletResponse;
 
 import static org.wso2.carbon.identity.mgt.endpoint.util.IdentityManagementEndpointConstants.My_ACCOUNT_APPLICATION_NAME;
 import static org.wso2.carbon.identity.mgt.endpoint.util.IdentityManagementEndpointConstants.SUPER_TENANT;
@@ -88,6 +96,7 @@ public class IdentityManagementEndpointUtil {
     public static final String PURPOSES = "purposes";
     public static final String MANDATORY = "mandatory";
     public static final String DISPLAY_NAME = "displayName";
+    public static final String ROOT_DOMAIN = "/";
     private static final String PROTECTED_TOKENS = "protectedTokens";
     private static final String DEFAULT_CALLBACK_HANDLER = "org.wso2.carbon.securevault.DefaultSecretCallbackHandler";
     private static final String SECRET_PROVIDER = "secretProvider";
@@ -180,9 +189,15 @@ public class IdentityManagementEndpointUtil {
         try {
             if (StringUtils.isNotEmpty(tenantDomain)) {
                 ApplicationDataRetrievalClient applicationDataRetrievalClient = new ApplicationDataRetrievalClient();
+                String myAccountAccessUrl;
                 try {
-                    String myAccountAccessUrl = applicationDataRetrievalClient.getApplicationAccessURL(SUPER_TENANT,
-                            My_ACCOUNT_APPLICATION_NAME);
+                    if (CarbonConstants.ENABLE_LEGACY_AUTHZ_RUNTIME == true) {
+                        myAccountAccessUrl = applicationDataRetrievalClient.getApplicationAccessURL(SUPER_TENANT,
+                                My_ACCOUNT_APPLICATION_NAME);
+                    } else {
+                        myAccountAccessUrl = applicationDataRetrievalClient.getApplicationAccessURL(tenantDomain,
+                                My_ACCOUNT_APPLICATION_NAME);
+                    }
                     if (StringUtils.isNotEmpty(myAccountAccessUrl)) {
                         return replaceUserTenantHintPlaceholder(myAccountAccessUrl, tenantDomain);
                     }
@@ -218,6 +233,29 @@ public class IdentityManagementEndpointUtil {
         }
         return url.replaceAll(Pattern.quote(USER_TENANT_HINT_PLACE_HOLDER), tenantDomain)
                 .replaceAll(Pattern.quote("/t/" + SUPER_TENANT), "");
+    }
+
+    /**
+     * Replace the ${organizationIdHint} placeholder in the url with the organization id.
+     *
+     * @param url URL.
+     * @param orgId Organization id.
+     * @return The value replaced url.
+     */
+    public static String getOrganizationIdHintReplacedURL(String url, String orgId) {
+
+        if (StringUtils.isBlank(url)) {
+            return url;
+        }
+        if (!url.contains(IdentityManagementEndpointConstants.ORGANIZATION_ID_HINT_PLACE_HOLDER)) {
+            return url;
+        }
+        if (StringUtils.isNotBlank(orgId)) {
+            return url.replaceAll(Pattern.quote(IdentityManagementEndpointConstants.ORGANIZATION_ID_HINT_PLACE_HOLDER),
+                    orgId);
+        }
+        return url.replaceAll(Pattern.quote(IdentityManagementEndpointConstants.ORGANIZATION_ID_HINT_PLACE_HOLDER),
+                StringUtils.EMPTY);
     }
 
     /**
@@ -448,14 +486,19 @@ public class IdentityManagementEndpointUtil {
      */
     public static String i18nBase64(ResourceBundle resourceBundle, String key) {
 
-        String base64Key = Base64.encode(key.getBytes(StandardCharsets.UTF_8)).replaceAll(PADDING_CHAR, UNDERSCORE);
+        /*
+        If the key is encoded already, before encoding (avoid double encoding) it within this method,
+        Unescapes an HTML string to a string containing the actual Unicode characters corresponding to the escapes.
+         */
+        String unescapedKey = StringEscapeUtils.unescapeHtml(key);
+        String base64Key = Base64.encode(unescapedKey.getBytes(StandardCharsets.UTF_8)).replaceAll(PADDING_CHAR, UNDERSCORE);
         try {
             return Encode.forHtml((StringUtils.isNotBlank(resourceBundle.getString(base64Key)) ?
-                    resourceBundle.getString(base64Key) : key));
+                    resourceBundle.getString(base64Key) : unescapedKey));
         } catch (Exception e) {
             // Intentionally catching Exception and if something goes wrong while finding the value for key, return
             // default, not to break the UI
-            return Encode.forHtml(key);
+            return Encode.forHtml(unescapedKey);
         }
     }
 
@@ -766,6 +809,12 @@ public class IdentityManagementEndpointUtil {
                 if (IdentityTenantUtil.isTenantQualifiedUrlsEnabled()) {
                     basePath = ServiceURLBuilder.create().addPath(context).setTenant(tenantDomain).build()
                             .getAbsoluteInternalURL();
+                    if (basePath != null && basePath.contains(FrameworkConstants.ORGANIZATION_CONTEXT_PREFIX)) {
+                    /* Resolving tenant domain from organization ID is not provided by an API. Hence, the retrieval
+                       client will have to assume organization ID is same as tenant domain. */
+                    basePath = basePath.replace(FrameworkConstants.ORGANIZATION_CONTEXT_PREFIX,
+                                FrameworkConstants.TENANT_CONTEXT_PREFIX);
+                    }
                 } else {
                     serverUrl = ServiceURLBuilder.create().build().getAbsoluteInternalURL();
                     if (StringUtils.isNotBlank(tenantDomain) && !MultitenantConstants.SUPER_TENANT_DOMAIN_NAME
@@ -873,5 +922,76 @@ public class IdentityManagementEndpointUtil {
                     .collect(Collectors.toMap(entry -> entry[0], entry -> entry[1]));
         }
         return queryParamMap.get(queryParameter);
+    }
+
+    /**
+     * Stores a cookie to the response.
+     *
+     * @param req         Incoming HttpServletRequest.
+     * @param resp        Outgoing HttpServletResponse.
+     * @param cookieName  Name of the cookie to be stored.
+     * @param value       Value of the cookie.
+     * @param age         Max age of the cookie.
+     * @param sameSite    SameSite attribute value for the cookie.
+     * @param domain      Domain of the cookie.
+     */
+    public static void setCookie(HttpServletRequest req, HttpServletResponse resp, String cookieName, String value,
+                          Integer age, SameSiteCookie sameSite, String path, String domain) {
+
+        CookieBuilder cookieBuilder = new CookieBuilder(cookieName, value);
+        IdentityCookieConfig cookieConfig = IdentityUtil.getIdentityCookieConfig(cookieName);
+        if (cookieConfig != null) {
+            updateCookieConfig(cookieBuilder, cookieConfig, age, path, sameSite, domain);
+        } else {
+            cookieBuilder.setSecure(true)
+                    .setHttpOnly(true)
+                    .setPath(StringUtils.isNotBlank(path) ? path : ROOT_DOMAIN)
+                    .setDomain(domain)
+                    .setSameSite(sameSite);
+            if (age != null && age > 0) {
+                cookieBuilder.setMaxAge(age);
+            }
+        }
+        resp.addCookie(cookieBuilder.build());
+    }
+
+    private static void updateCookieConfig(CookieBuilder cookieBuilder, IdentityCookieConfig
+            cookieConfig, Integer age, String path, SameSiteCookie sameSite, String domain) {
+
+        if (cookieConfig.getDomain() != null) {
+            cookieBuilder.setDomain(cookieConfig.getDomain());
+        } else if (StringUtils.isNotBlank(domain)) {
+            cookieBuilder.setDomain(domain);
+        }
+
+        if (cookieConfig.getPath() != null) {
+            cookieBuilder.setPath(cookieConfig.getPath());
+        } else if (StringUtils.isNotBlank(path)) {
+            cookieBuilder.setPath(path);
+        }
+
+        if (cookieConfig.getComment() != null) {
+            cookieBuilder.setComment(cookieConfig.getComment());
+        }
+
+        if (cookieConfig.getMaxAge() > 0) {
+            cookieBuilder.setMaxAge(cookieConfig.getMaxAge());
+        } else if (age != null && age > 0) {
+            cookieBuilder.setMaxAge(age);
+        }
+
+        if (cookieConfig.getVersion() > 0) {
+            cookieBuilder.setVersion(cookieConfig.getVersion());
+        }
+
+        if (cookieConfig.getSameSite() != null) {
+            cookieBuilder.setSameSite(cookieConfig.getSameSite());
+        } else if (sameSite != null) {
+            cookieBuilder.setSameSite(sameSite);
+        }
+
+        cookieBuilder.setHttpOnly(cookieConfig.isHttpOnly());
+
+        cookieBuilder.setSecure(cookieConfig.isSecure());
     }
 }

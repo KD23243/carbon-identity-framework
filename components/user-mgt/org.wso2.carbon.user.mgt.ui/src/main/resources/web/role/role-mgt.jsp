@@ -25,6 +25,7 @@
 <%@ page import="org.owasp.encoder.Encode" %>
 <%@ page import="org.wso2.carbon.CarbonConstants" %>
 <%@ page import="org.wso2.carbon.ui.CarbonUIUtil" %>
+<%@ page import="org.wso2.carbon.user.core.util.UserCoreUtil" %>
 <%@ page import="org.wso2.carbon.user.mgt.stub.types.carbon.FlaggedName" %>
 <%@ page import="org.wso2.carbon.user.mgt.stub.types.carbon.UserRealmInfo" %>
 <%@ page import="org.wso2.carbon.user.mgt.stub.types.carbon.UserStoreInfo" %>
@@ -160,6 +161,7 @@
     session.setAttribute(UserAdminUIConstants.ROLE_COUNT_FILTER, countFilter.trim());
 
     String currentUser = (String) session.getAttribute("logged-user");
+    currentUser = UserCoreUtil.removeDomainFromName(currentUser);
     userRealmInfo = (UserRealmInfo) session.getAttribute(UserAdminUIConstants.USER_STORE_INFO);
     if (userRealmInfo != null) {
         multipleUserStores = userRealmInfo.getMultipleUserStore();
@@ -665,7 +667,7 @@
                                 !data.getItemName().equals(userRealmInfo.getEveryOneRole()) && data.getEditable() &&
                                 CarbonUIUtil.isUserAuthorized(request, "/permission/admin/manage/identity/rolemgt/update")) {%>
 
-                        <a href="#" onclick="updateUserGroup('<%=Encode.forJavaScriptAttribute(roleName)%>')"
+                        <a href="#" onclick="updateUserGroup('<%=Encode.forUriComponent(roleName)%>')"
                            class="icon-link" style="background-image:url(images/edit.gif);"><fmt:message
                                 key="rename"/></a>
                         <% } %>
@@ -696,7 +698,7 @@
                                 !data.getItemName().equals(userRealmInfo.getEveryOneRole()) && data.getEditable() &&
                                 CarbonUIUtil.isUserAuthorized(request, "/permission/admin/manage/identity/rolemgt/delete"))
                         {%>
-                        <a href="#" onclick="deleteUserGroup('<%=Encode.forJavaScriptAttribute(roleName)%>')"
+                        <a href="#" onclick="deleteUserGroup('<%=Encode.forUriComponent(roleName)%>')"
                            class="icon-link" style="background-image:url(images/delete.gif);"><fmt:message
                                 key="delete"/></a>
                         <% }

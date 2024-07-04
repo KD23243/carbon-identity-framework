@@ -1,7 +1,7 @@
 /*
- * Copyright (c) 2014, WSO2 Inc. (http://www.wso2.org) All Rights Reserved.
+ * Copyright (c) 2014, WSO2 LLC. (http://www.wso2.org) All Rights Reserved.
  *
- * WSO2 Inc. licenses this file to you under the Apache License,
+ * WSO2 LLC. licenses this file to you under the Apache License,
  * Version 2.0 (the "License"); you may not use this file except
  * in compliance with the License.
  * You may obtain a copy of the License at
@@ -35,11 +35,15 @@ public class ApplicationBasicInfo implements Serializable {
     private String accessUrl;
 
     private User appOwner;
+    private String clientId;
+    private String issuer;
+    private String tenantDomain;
+    private String uuid;
 
     /**
      * Get application id.
      *
-     * @return application id
+     * @return Application id.
      */
     public int getApplicationId() {
 
@@ -49,7 +53,7 @@ public class ApplicationBasicInfo implements Serializable {
     /**
      * Set application id.
      *
-     * @param applicationId application id
+     * @param applicationId Application id.
      */
     public void setApplicationId(int applicationId) {
 
@@ -57,7 +61,9 @@ public class ApplicationBasicInfo implements Serializable {
     }
 
     /**
-     * @return
+     * Get application name.
+     *
+     * @return Application name.
      */
     public String getApplicationName() {
 
@@ -65,7 +71,9 @@ public class ApplicationBasicInfo implements Serializable {
     }
 
     /**
-     * @param applicationName
+     * Set application name.
+     *
+     * @param applicationName   Application name.
      */
     public void setApplicationName(String applicationName) {
 
@@ -73,7 +81,9 @@ public class ApplicationBasicInfo implements Serializable {
     }
 
     /**
-     * @return
+     * Get application description.
+     *
+     * @return Description.
      */
     public String getDescription() {
 
@@ -81,50 +91,173 @@ public class ApplicationBasicInfo implements Serializable {
     }
 
     /**
-     * @param description
+     * Set application description.
+     *
+     * @param description   Description.
      */
     public void setDescription(String description) {
 
         this.description = description;
     }
 
+    /**
+     * Get application resource id.
+     *
+     * @return Application resource id.
+     */
     public String getApplicationResourceId() {
 
         return applicationResourceId;
     }
 
+    /**
+     * Set application resource id.
+     *
+     * @param applicationResourceId Application resource id.
+     */
     public void setApplicationResourceId(String applicationResourceId) {
 
         this.applicationResourceId = applicationResourceId;
     }
 
+    /**
+     * Get image URL.
+     *
+     * @return Image URL.
+     */
     public String getImageUrl() {
 
         return imageUrl;
     }
 
+    /**
+     * Set application image URL.
+     *
+     * @param imageUrl  Application image URL.
+     */
     public void setImageUrl(String imageUrl) {
 
         this.imageUrl = imageUrl;
     }
 
+    /**
+     * Get access URL.
+     *
+     * @return Access URL.
+     */
     public String getAccessUrl() {
 
         return accessUrl;
     }
 
+    /**
+     * Set access URL.
+     *
+     * @param accessUrl Access URL.
+     */
     public void setAccessUrl(String accessUrl) {
 
         this.accessUrl = accessUrl;
     }
 
+    /**
+     * Get app owner details.
+     *
+     * @return App owner details.
+     */
     public User getAppOwner() {
 
         return appOwner;
     }
 
+    /**
+     * Set application owner details.
+     *
+     * @param appOwner  Application owner details.
+     */
     public void setAppOwner(User appOwner) {
 
         this.appOwner = appOwner;
     }
+
+    /**
+     * Get OAuth2 client ID.
+     *
+     * @return OAuth2 client ID.
+     */
+    public String getClientId() {
+
+        return clientId;
+    }
+
+    /**
+     * Set OAuth2 client ID.
+     *
+     * @param clientId  OAuth2 client ID.
+     */
+    public void setClientId(String clientId) {
+
+        this.clientId = clientId;
+    }
+
+    /**
+     * Get SAML issuer.
+     *
+     * @return SAML issuer.
+     */
+    public String getIssuer() {
+
+        return issuer;
+    }
+
+    /**
+     * Set SAML issuer.
+     *
+     * @param issuer  SAML issuer.
+     */
+    public void setIssuer(String issuer) {
+
+        this.issuer = issuer;
+    }
+
+    /**
+     * Get application tenant domain.
+     *
+     * @return Tenant domain
+     */
+    public String getTenantDomain() {
+
+        return tenantDomain;
+    }
+
+    /**
+     * Set application tenant domain.
+     *
+     * @param tenantDomain Application tenant domain
+     */
+    public void setTenantDomain(String tenantDomain) {
+
+        this.tenantDomain = tenantDomain;
+    }
+
+    /**
+     * Get application uuid.
+     *
+     * @return uuid application uuid
+     */
+    public String getUuid() {
+
+        return uuid;
+    }
+
+    /**
+     * Set application uuid.
+     *
+     * @param uuid application uuid
+     */
+    public void setUuid(String uuid) {
+
+        this.uuid = uuid;
+    }
+
 }

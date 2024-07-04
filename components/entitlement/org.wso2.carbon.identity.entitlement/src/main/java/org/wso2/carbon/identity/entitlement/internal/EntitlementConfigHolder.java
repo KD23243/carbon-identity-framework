@@ -18,6 +18,7 @@
 
 package org.wso2.carbon.identity.entitlement.internal;
 
+import org.wso2.carbon.identity.application.mgt.ApplicationManagementService;
 import org.wso2.carbon.identity.entitlement.PAPStatusDataHandler;
 import org.wso2.carbon.identity.entitlement.dto.PublisherDataHolder;
 import org.wso2.carbon.identity.entitlement.pap.EntitlementDataFinderModule;
@@ -29,9 +30,7 @@ import org.wso2.carbon.identity.entitlement.policy.finder.PolicyFinderModule;
 import org.wso2.carbon.identity.entitlement.policy.publisher.PolicyPublisherModule;
 import org.wso2.carbon.identity.entitlement.policy.publisher.PostPublisherModule;
 import org.wso2.carbon.identity.entitlement.policy.publisher.PublisherVerificationModule;
-import org.wso2.carbon.identity.entitlement.policy.store.PolicyDataStore;
 import org.wso2.carbon.identity.entitlement.policy.store.PolicyStoreManageModule;
-import org.wso2.carbon.identity.entitlement.policy.version.PolicyVersionManager;
 import org.wso2.carbon.utils.ConfigurationContextService;
 
 import java.util.ArrayList;
@@ -114,20 +113,6 @@ public class EntitlementConfigHolder {
             new HashMap<PolicyStoreManageModule, Properties>();
 
     /**
-     * This holds all the policy versioning of PAP
-     */
-    private Map<PolicyDataStore, Properties> policyDataStore =
-            new HashMap<PolicyDataStore, Properties>();
-
-
-    /**
-     * This holds all the policy storing logic of entitlement engine
-     */
-    private Map<PolicyVersionManager, Properties> policyVersionModule =
-            new HashMap<PolicyVersionManager, Properties>();
-
-
-    /**
      * This holds the policy schema against its version
      */
     private Map<String, Schema> policySchemaMap = new HashMap<String, Schema>();
@@ -144,6 +129,7 @@ public class EntitlementConfigHolder {
             new HashMap<String, List<PublisherDataHolder>>();
 
     private ConfigurationContextService configurationContextService;
+    private ApplicationManagementService applicationManagementService;
     private static EntitlementConfigHolder instance = new EntitlementConfigHolder();
 
     private EntitlementConfigHolder() {
@@ -276,27 +262,21 @@ public class EntitlementConfigHolder {
         this.papStatusDataHandlers.put(notificationHandler, properties);
     }
 
-    public Map<PolicyVersionManager, Properties> getPolicyVersionModule() {
-        return policyVersionModule;
-    }
-
-    public void addPolicyVersionModule(PolicyVersionManager policyVersionModule, Properties properties) {
-        this.policyVersionModule.put(policyVersionModule, properties);
-    }
-
-    public Map<PolicyDataStore, Properties> getPolicyDataStore() {
-        return policyDataStore;
-    }
-
-    public void addPolicyDataStore(PolicyDataStore policyDataStore, Properties properties) {
-        this.policyDataStore.put(policyDataStore, properties);
-    }
-
     public ConfigurationContextService getConfigurationContextService() {
         return configurationContextService;
     }
 
     public void setConfigurationContextService(ConfigurationContextService configurationContextService) {
         this.configurationContextService = configurationContextService;
+    }
+
+    public ApplicationManagementService getApplicationManagementService() {
+
+        return applicationManagementService;
+    }
+
+    public void setApplicationManagementService(ApplicationManagementService applicationManagementService) {
+
+        this.applicationManagementService = applicationManagementService;
     }
 }

@@ -1,7 +1,7 @@
 /*
- * Copyright (c) 2021, WSO2 Inc. (http://www.wso2.org) All Rights Reserved.
+ * Copyright (c) 2021, WSO2 LLC. (http://www.wso2.org) All Rights Reserved.
  *
- * WSO2 Inc. licenses this file to you under the Apache License,
+ * WSO2 LLC. licenses this file to you under the Apache License,
  * Version 2.0 (the "License"); you may not use this file except
  * in compliance with the License.
  * You may obtain a copy of the License at
@@ -18,12 +18,13 @@
 
 package org.wso2.carbon.identity.application.mgt;
 
-import org.powermock.modules.testng.PowerMockTestCase;
 import org.testng.Assert;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.DataProvider;
 import org.testng.annotations.Test;
+import org.wso2.carbon.CarbonConstants;
 import org.wso2.carbon.base.CarbonBaseConstants;
+import org.wso2.carbon.context.CarbonContext;
 import org.wso2.carbon.context.PrivilegedCarbonContext;
 import org.wso2.carbon.context.RegistryType;
 import org.wso2.carbon.context.internal.OSGiDataHolder;
@@ -36,6 +37,7 @@ import org.wso2.carbon.identity.application.common.model.AuthenticationStep;
 import org.wso2.carbon.identity.application.common.model.Claim;
 import org.wso2.carbon.identity.application.common.model.ClaimConfig;
 import org.wso2.carbon.identity.application.common.model.ClaimMapping;
+import org.wso2.carbon.identity.application.common.model.ClientAttestationMetaData;
 import org.wso2.carbon.identity.application.common.model.FederatedAuthenticatorConfig;
 import org.wso2.carbon.identity.application.common.model.IdentityProvider;
 import org.wso2.carbon.identity.application.common.model.InboundAuthenticationConfig;
@@ -50,14 +52,33 @@ import org.wso2.carbon.identity.application.common.model.ProvisioningConnectorCo
 import org.wso2.carbon.identity.application.common.model.RequestPathAuthenticatorConfig;
 import org.wso2.carbon.identity.application.common.model.RoleMapping;
 import org.wso2.carbon.identity.application.common.model.ServiceProvider;
+import org.wso2.carbon.identity.application.mgt.inbound.dto.ApplicationDTO;
+import org.wso2.carbon.identity.application.mgt.inbound.dto.InboundProtocolConfigurationDTO;
+import org.wso2.carbon.identity.application.mgt.inbound.dto.InboundProtocolsDTO;
+import org.wso2.carbon.identity.application.mgt.inbound.protocol.ApplicationInboundAuthConfigHandler;
 import org.wso2.carbon.identity.application.mgt.internal.ApplicationManagementServiceComponentHolder;
+import org.wso2.carbon.identity.application.mgt.provider.ApplicationPermissionProvider;
+import org.wso2.carbon.identity.application.mgt.provider.RegistryBasedApplicationPermissionProvider;
 import org.wso2.carbon.identity.common.testng.WithH2Database;
 import org.wso2.carbon.identity.common.testng.realm.InMemoryRealmService;
 import org.wso2.carbon.identity.common.testng.realm.MockUserStoreManager;
 import org.wso2.carbon.identity.core.internal.IdentityCoreServiceDataHolder;
 import org.wso2.carbon.identity.core.util.IdentityTenantUtil;
+import org.wso2.carbon.identity.secret.mgt.core.IdPSecretsProcessor;
+import org.wso2.carbon.identity.secret.mgt.core.SecretManager;
+import org.wso2.carbon.identity.secret.mgt.core.SecretManagerImpl;
+import org.wso2.carbon.identity.secret.mgt.core.SecretResolveManager;
+import org.wso2.carbon.identity.secret.mgt.core.SecretResolveManagerImpl;
+import org.wso2.carbon.identity.secret.mgt.core.SecretsProcessor;
+import org.wso2.carbon.identity.secret.mgt.core.dao.SecretDAO;
+import org.wso2.carbon.identity.secret.mgt.core.dao.impl.SecretDAOImpl;
+import org.wso2.carbon.identity.secret.mgt.core.exception.SecretManagementException;
+import org.wso2.carbon.identity.secret.mgt.core.internal.SecretManagerComponentDataHolder;
+import org.wso2.carbon.identity.secret.mgt.core.model.ResolvedSecret;
+import org.wso2.carbon.identity.secret.mgt.core.model.Secret;
 import org.wso2.carbon.idp.mgt.IdentityProviderManagementException;
 import org.wso2.carbon.idp.mgt.dao.IdPManagementDAO;
+import org.wso2.carbon.idp.mgt.internal.IdpMgtServiceComponentHolder;
 import org.wso2.carbon.registry.core.Collection;
 import org.wso2.carbon.registry.core.exceptions.RegistryException;
 import org.wso2.carbon.registry.core.internal.RegistryDataHolder;
@@ -69,13 +90,15 @@ import org.wso2.carbon.user.core.service.RealmService;
 
 import java.lang.reflect.Field;
 import java.nio.file.Paths;
+import java.util.Collections;
 
 import static java.lang.Boolean.FALSE;
 import static java.lang.Boolean.TRUE;
-import static org.mockito.Matchers.anyInt;
-import static org.mockito.Matchers.anyString;
-import static org.powermock.api.mockito.PowerMockito.mock;
-import static org.powermock.api.mockito.PowerMockito.when;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 import static org.wso2.carbon.CarbonConstants.REGISTRY_SYSTEM_USERNAME;
 import static org.wso2.carbon.utils.multitenancy.MultitenantConstants.SUPER_TENANT_DOMAIN_NAME;
 import static org.wso2.carbon.utils.multitenancy.MultitenantConstants.SUPER_TENANT_ID;
@@ -85,24 +108,63 @@ import static org.wso2.carbon.utils.multitenancy.MultitenantConstants.SUPER_TENA
  */
 @Test
 @WithH2Database(jndiName = "jdbc/WSO2IdentityDB", files = {"dbscripts/identity.sql"})
-public class ApplicationManagementServiceImplTest extends PowerMockTestCase {
+public class ApplicationManagementServiceImplTest {
 
     private static final String SAMPLE_TENANT_DOMAIN = "tenant domain";
-    private static final String APPLICATION_NAME_1 = "Test application 1";
-    private static final String APPLICATION_NAME_2 = "Test application 2";
+    private static final String APPLICATION_NAME_1 = "Test application1";
+    private static final String APPLICATION_NAME_2 = "Test application2";
+    private static final String APPLICATION_INBOUND_AUTH_KEY_1 = "Test_auth_key1";
+    private static final String APPLICATION_INBOUND_AUTH_KEY_2 = "Test_auth_key2";
+    private static final String APPLICATION_NAME_FILTER_1 = "name ew application1";
+    private static final String APPLICATION_NAME_FILTER_2 = "name co 2";
+    private static final String APPLICATION_CLIENT_ID_FILTER = "clientId co %s";
+    private static final String APPLICATION_ISSUER_FILTER = "issuer co %s";
+    private static final String APPLICATION_NAME_OR_CLIENT_ID_FILTER = "name co sampleAppName or clientId eq %s";
+    private static final String APPLICATION_NAME_AND_CLIENT_ID_FILTER = "name co application1 and clientId eq %s";
+    private static final String APPLICATION_NAME_AND_CLIENT_ID_OR_ISSUER_FILTER =
+            "name co application1 and clientId eq %s or issuer eq %s";
+    private static final String APPLICATION_ISSUER_OR_ISSUER_FILTER = "issuer eq %s or issuer co %s";
+    private static final String APPLICATION_NAME_OR_ISSUER_FILTER = "name co sampleAppName or issuer eq %s";
+    private static final String APPLICATION_NAME_AND_ISSUER_FILTER = "name co application1 and issuer eq %s";
     private static final String IDP_NAME_1 = "Test IdP 1";
     private static final String IDP_NAME_2 = "Test IdP 2";
     private static final String USERNAME_1 = "user 1";
     private static final String USERNAME_2 = "user 2";
+    private static final String RANDOM_STRING = "random string";
 
     private IdPManagementDAO idPManagementDAO;
     private ApplicationManagementServiceImpl applicationManagementService;
 
     @BeforeClass
-    public void setup() throws RegistryException, UserStoreException {
+    public void setup() throws RegistryException, UserStoreException, SecretManagementException {
 
         setupConfiguration();
         applicationManagementService = ApplicationManagementServiceImpl.getInstance();
+
+        SecretsProcessor<IdentityProvider> idpSecretsProcessor = mock(
+                IdPSecretsProcessor.class);
+        IdpMgtServiceComponentHolder.getInstance().setIdPSecretsProcessorService(idpSecretsProcessor);
+        when(idpSecretsProcessor.encryptAssociatedSecrets(any())).thenAnswer(
+                invocation -> invocation.getArguments()[0]);
+        when(idpSecretsProcessor.decryptAssociatedSecrets(any())).thenAnswer(invocation ->
+                invocation.getArguments()[0]);
+
+        SecretManager secretManager = mock(SecretManagerImpl.class);
+        Secret secret = mock(Secret.class);
+        ApplicationManagementServiceComponentHolder.getInstance().setSecretManager(secretManager);
+        when(secretManager.isSecretExist(anyString(), anyString())).thenReturn(false);
+        when(secretManager.addSecret(anyString(), any())).thenAnswer(
+                invocation -> invocation.getArguments()[1]);
+        when(secretManager.updateSecretValue(anyString(), anyString(), anyString())).thenReturn(secret);
+        ResolvedSecret resolvedSecret = new ResolvedSecret();
+        resolvedSecret.setResolvedSecretValue("random_secret_value");
+        SecretResolveManager secretResolveManager = mock(SecretResolveManagerImpl.class);
+        ApplicationManagementServiceComponentHolder.getInstance().setSecretResolveManager(secretResolveManager);
+        when(secretResolveManager.getResolvedSecret(anyString(), anyString())).thenReturn(resolvedSecret);
+        SecretManagerComponentDataHolder.getInstance().setSecretManagementEnabled(true);
+        SecretDAO secretDAO = new SecretDAOImpl();
+        SecretManagerComponentDataHolder.getInstance().setSecretDAOS(Collections.singletonList(secretDAO));
+        CarbonConstants.ENABLE_LEGACY_AUTHZ_RUNTIME = false;
     }
 
     @DataProvider(name = "addApplicationDataProvider")
@@ -214,8 +276,13 @@ public class ApplicationManagementServiceImplTest extends PowerMockTestCase {
 
         applicationManagementService.addApplication((ServiceProvider) serviceProvider, tenantDomain, username);
 
-        Assert.assertThrows(IdentityApplicationManagementClientException.class, () -> applicationManagementService.
-                addApplication((ServiceProvider) newServiceProvider, tenantDomain, username));
+        try {
+            Assert.assertThrows(IdentityApplicationManagementClientException.class, () -> applicationManagementService.
+                    addApplication((ServiceProvider) newServiceProvider, tenantDomain, username));
+        } finally {
+            applicationManagementService.deleteApplication(((ServiceProvider) serviceProvider).getApplicationName(),
+                    tenantDomain, username);
+        }
     }
 
     @DataProvider(name = "getApplicationDataProvider")
@@ -234,18 +301,18 @@ public class ApplicationManagementServiceImplTest extends PowerMockTestCase {
     }
 
     @Test(dataProvider = "getApplicationDataProvider")
-    public void testGetApplicationBasicInfoWithFilter(Object serviceProvider, String tenantDomain, String username)
+    public void testGetApplicationBasicInfoWithNameFilter(Object serviceProvider, String tenantDomain, String username)
             throws IdentityApplicationManagementException {
 
         ServiceProvider inputSP = (ServiceProvider) serviceProvider;
 
-        // Adding new application.
+        // Adding application.
         ServiceProvider addedSP = applicationManagementService.addApplication(inputSP, tenantDomain,
                 username);
 
         // Retrieving added application info.
         ApplicationBasicInfo[] applicationBasicInfo = applicationManagementService.getApplicationBasicInfo
-                (tenantDomain, username, inputSP.getApplicationName());
+                (tenantDomain, username, "name eq " + inputSP.getApplicationName());
         Assert.assertEquals(applicationBasicInfo[0].getApplicationName(), inputSP.getApplicationName());
         Assert.assertEquals(applicationBasicInfo[0].getApplicationName(), addedSP.getApplicationName());
 
@@ -259,13 +326,12 @@ public class ApplicationManagementServiceImplTest extends PowerMockTestCase {
 
         ServiceProvider inputSP = (ServiceProvider) serviceProvider;
 
-        // Adding new application.
-        ServiceProvider addedSP = applicationManagementService.addApplication(inputSP, tenantDomain,
-                username);
+        // Adding application.
+        ServiceProvider addedSP = applicationManagementService.addApplication(inputSP, tenantDomain, username);
 
         // Retrieving added application info.
         ApplicationBasicInfo[] applicationBasicInfo = applicationManagementService.getPaginatedApplicationBasicInfo
-                (tenantDomain, username, 1, inputSP.getApplicationName());
+                (tenantDomain, username, 1, "name co " + inputSP.getApplicationName());
         Assert.assertEquals(applicationBasicInfo[0].getApplicationName(), inputSP.getApplicationName());
         Assert.assertEquals(applicationBasicInfo[0].getApplicationName(), addedSP.getApplicationName());
 
@@ -332,22 +398,212 @@ public class ApplicationManagementServiceImplTest extends PowerMockTestCase {
         applicationManagementService.deleteApplications(SUPER_TENANT_ID);
     }
 
-    @Test
-    public void testGetApplicationBasicInfoFilterOffsetLimit() throws IdentityApplicationManagementException {
+    @DataProvider(name = "getOAuthApplicationDataProvider")
+    public Object[][] getOAuthApplicationDataProvider() {
 
-        addApplications();
+        return new Object[][]{
+            {APPLICATION_NAME_FILTER_1, APPLICATION_NAME_1},
+            {APPLICATION_NAME_FILTER_2, APPLICATION_NAME_2},
+            {String.format(APPLICATION_CLIENT_ID_FILTER, APPLICATION_INBOUND_AUTH_KEY_1), APPLICATION_NAME_1},
+            {String.format(APPLICATION_CLIENT_ID_FILTER, APPLICATION_INBOUND_AUTH_KEY_2), APPLICATION_NAME_2},
+            {String.format(APPLICATION_NAME_OR_CLIENT_ID_FILTER, APPLICATION_INBOUND_AUTH_KEY_1), APPLICATION_NAME_1},
+            {String.format(APPLICATION_NAME_OR_CLIENT_ID_FILTER, APPLICATION_INBOUND_AUTH_KEY_2), APPLICATION_NAME_2},
+            {String.format(APPLICATION_NAME_AND_CLIENT_ID_FILTER, APPLICATION_INBOUND_AUTH_KEY_1), APPLICATION_NAME_1},
+            {String.format(APPLICATION_NAME_AND_CLIENT_ID_OR_ISSUER_FILTER, APPLICATION_INBOUND_AUTH_KEY_1,
+                    APPLICATION_INBOUND_AUTH_KEY_1), APPLICATION_NAME_1}
+        };
+    }
 
-        ApplicationBasicInfo[] applicationBasicInfo1 = applicationManagementService.getApplicationBasicInfo
-                (SUPER_TENANT_DOMAIN_NAME, USERNAME_1, APPLICATION_NAME_2, 0, 1);
-        Assert.assertEquals(applicationBasicInfo1[0].getApplicationName(), APPLICATION_NAME_2);
+    @Test(dataProvider = "getOAuthApplicationDataProvider")
+    public void testGetOAuth2ApplicationBasicInfoWithFilterOffsetLimit(String filter, String expectedResult)
+            throws IdentityApplicationManagementException {
 
-        ApplicationBasicInfo[] applicationBasicInfo2 = applicationManagementService.getApplicationBasicInfo
-                (SUPER_TENANT_DOMAIN_NAME, USERNAME_1, APPLICATION_NAME_1, 0, 1);
-        Assert.assertEquals(applicationBasicInfo2[0].getApplicationName(), APPLICATION_NAME_1);
+        ServiceProvider inputSP1 = new ServiceProvider();
+        inputSP1.setApplicationName(APPLICATION_NAME_1);
+        addApplicationConfigurations(inputSP1);
+        setApplicationInboundAuthConfigs(inputSP1, APPLICATION_INBOUND_AUTH_KEY_1, "oauth2");
+
+        ServiceProvider inputSP2 = new ServiceProvider();
+        inputSP2.setApplicationName(APPLICATION_NAME_2);
+        addApplicationConfigurations(inputSP2);
+        setApplicationInboundAuthConfigs(inputSP2, APPLICATION_INBOUND_AUTH_KEY_2, "oauth2");
+
+        // Adding application.
+        applicationManagementService.createApplication(inputSP1, SUPER_TENANT_DOMAIN_NAME, USERNAME_1);
+        applicationManagementService.createApplication(inputSP2, SUPER_TENANT_DOMAIN_NAME, USERNAME_1);
+
+        // Test get applications with filter.
+        ApplicationBasicInfo[] applicationBasicInfo = applicationManagementService.getApplicationBasicInfo
+                (SUPER_TENANT_DOMAIN_NAME, USERNAME_1, filter, 0, 5);
+        Assert.assertEquals(applicationBasicInfo[0].getApplicationName(), expectedResult);
 
         // Deleting all added applications.
         applicationManagementService.deleteApplications(SUPER_TENANT_ID);
     }
+    
+    @Test
+    public void testCreateAndGetApplicationWithProtocolService() throws IdentityApplicationManagementException {
+        
+        ApplicationDTO.Builder applicationDTOBuilder = new ApplicationDTO.Builder();
+        ServiceProvider inputSP1 = new ServiceProvider();
+        inputSP1.setApplicationName(APPLICATION_NAME_1);
+        // Adding application configurations except inbound protocol configurations.
+        addApplicationConfigurations(inputSP1);
+        applicationDTOBuilder.serviceProvider(inputSP1);
+        
+        // Creating OAuth2 inbound protocol configurations.
+        InboundProtocolsDTO inbounds = setInboundProtocol();
+        inbounds.addProtocolConfiguration(() -> ApplicationConstants.StandardInboundProtocols.SAML2);
+        applicationDTOBuilder.inboundProtocolConfigurationDto(inbounds);
+        
+        // Mocking protocol service.
+        ApplicationManagementServiceComponentHolder.getInstance().addApplicationInboundAuthConfigHandler(
+                customSAML2InboundAuthConfigHandler());
+        
+        // Creating application.
+        applicationManagementService.createApplication(applicationDTOBuilder.build(), SUPER_TENANT_DOMAIN_NAME,
+                USERNAME_1);
+        ServiceProvider applicationByResourceId = applicationManagementService.getApplicationByResourceId(inputSP1
+                .getApplicationResourceId(), SUPER_TENANT_DOMAIN_NAME);
+        Assert.assertEquals(applicationByResourceId.getApplicationName(), APPLICATION_NAME_1);
+        // There should be 2 inbound protocol configurations. The one that already exists and the one that is created.
+        Assert.assertEquals(applicationByResourceId.getInboundAuthenticationConfig()
+                .getInboundAuthenticationRequestConfigs().length, 2);
+        for (InboundAuthenticationRequestConfig inboundAuthenticationRequestConfig : applicationByResourceId
+                .getInboundAuthenticationConfig().getInboundAuthenticationRequestConfigs()) {
+            // This is the existing inbound protocol configuration. Validate the existing inbound protocol
+            // configuration is unchanged.
+            if (ApplicationConstants.StandardInboundProtocols.OAUTH2.equals(inboundAuthenticationRequestConfig
+                    .getInboundAuthType())) {
+                Assert.assertEquals(inboundAuthenticationRequestConfig.getInboundAuthKey(),
+                        "auth key");
+            }
+            // This is the newly created inbound protocol configuration. Validate the newly created inbound protocol
+            // is added.
+            if (ApplicationConstants.StandardInboundProtocols.SAML2.equals(inboundAuthenticationRequestConfig
+                    .getInboundAuthType())) {
+                Assert.assertEquals(inboundAuthenticationRequestConfig.getInboundAuthKey(),
+                        APPLICATION_INBOUND_AUTH_KEY_1);
+            }
+        }
+        
+        applicationManagementService.deleteApplications(SUPER_TENANT_ID);
+    }
+    
+    private ApplicationInboundAuthConfigHandler customSAML2InboundAuthConfigHandler() {
+        
+        return new ApplicationInboundAuthConfigHandler() {
+            @Override
+            public boolean canHandle(InboundProtocolsDTO inboundProtocolsDTO) {
+                
+                return true;
+            }
+            
+            @Override
+            public boolean canHandle(String protocolName) {
+                
+                return ApplicationConstants.StandardInboundProtocols.SAML2.equals(protocolName);
+            }
+            
+            @Override
+            public InboundAuthenticationRequestConfig handleConfigCreation(ServiceProvider serviceProvider,
+                                                                           InboundProtocolsDTO inboundProtocolsDTO)
+                    throws IdentityApplicationManagementException {
+                
+                InboundAuthenticationRequestConfig inboundAuthenticationRequestConfig = new
+                        InboundAuthenticationRequestConfig();
+                inboundAuthenticationRequestConfig.setInboundAuthKey(APPLICATION_INBOUND_AUTH_KEY_1);
+                inboundAuthenticationRequestConfig.setInboundAuthType(
+                        ApplicationConstants.StandardInboundProtocols.SAML2);
+                return inboundAuthenticationRequestConfig;
+            }
+            
+            @Override
+            public InboundAuthenticationRequestConfig handleConfigUpdate(
+                    ServiceProvider application, InboundProtocolConfigurationDTO inboundProtocolsDTO)
+                    throws IdentityApplicationManagementException {
+                
+                return null;
+            }
+            
+            @Override
+            public void handleConfigDeletion(String appId) throws IdentityApplicationManagementException {
+            
+            }
+            
+            @Override
+            public InboundProtocolConfigurationDTO handleConfigRetrieval(String appId)
+                    throws IdentityApplicationManagementException {
+                
+                return null;
+            }
+        };
+    }
+
+    @DataProvider(name = "getSAMLApplicationDataProvider")
+    public Object[][] getSAMLApplicationDataProvider() {
+
+        return new Object[][]{
+            {APPLICATION_NAME_FILTER_1, APPLICATION_NAME_1},
+            {APPLICATION_NAME_FILTER_2, APPLICATION_NAME_2},
+            {String.format(APPLICATION_ISSUER_FILTER, APPLICATION_INBOUND_AUTH_KEY_1), APPLICATION_NAME_1},
+            {String.format(APPLICATION_ISSUER_FILTER, APPLICATION_INBOUND_AUTH_KEY_2), APPLICATION_NAME_2},
+            {String.format(APPLICATION_NAME_OR_ISSUER_FILTER, APPLICATION_INBOUND_AUTH_KEY_1), APPLICATION_NAME_1},
+            {String.format(APPLICATION_NAME_OR_ISSUER_FILTER, APPLICATION_INBOUND_AUTH_KEY_2), APPLICATION_NAME_2},
+            {String.format(APPLICATION_NAME_AND_ISSUER_FILTER, APPLICATION_INBOUND_AUTH_KEY_1), APPLICATION_NAME_1},
+            {String.format(APPLICATION_NAME_AND_CLIENT_ID_OR_ISSUER_FILTER, APPLICATION_INBOUND_AUTH_KEY_1,
+                    APPLICATION_INBOUND_AUTH_KEY_1), APPLICATION_NAME_1},
+        };
+    }
+
+    @Test(dataProvider = "getSAMLApplicationDataProvider")
+    public void testGetSAMLApplicationBasicInfoWithFilterOffsetLimit(String filter, String expectedResult)
+            throws IdentityApplicationManagementException {
+
+        ServiceProvider inputSP1 = new ServiceProvider();
+        inputSP1.setApplicationName(APPLICATION_NAME_1);
+        addApplicationConfigurations(inputSP1);
+        setApplicationInboundAuthConfigs(inputSP1, APPLICATION_INBOUND_AUTH_KEY_1, "samlsso");
+
+        ServiceProvider inputSP2 = new ServiceProvider();
+        inputSP2.setApplicationName(APPLICATION_NAME_2);
+        addApplicationConfigurations(inputSP2);
+        setApplicationInboundAuthConfigs(inputSP2, APPLICATION_INBOUND_AUTH_KEY_2, "samlsso");
+
+        // Adding application.
+        applicationManagementService.createApplication(inputSP1, SUPER_TENANT_DOMAIN_NAME, USERNAME_1);
+        applicationManagementService.createApplication(inputSP2, SUPER_TENANT_DOMAIN_NAME, USERNAME_1);
+
+        // Test get applications with filter.
+        ApplicationBasicInfo[] applicationBasicInfo = applicationManagementService.getApplicationBasicInfo
+                (SUPER_TENANT_DOMAIN_NAME, USERNAME_1, filter, 0, 5);
+        Assert.assertEquals(applicationBasicInfo[0].getApplicationName(), expectedResult);
+
+        // Deleting all added applications.
+        applicationManagementService.deleteApplications(SUPER_TENANT_ID);
+    }
+
+    @Test
+    public void testGetConfiguredAuthenticators() throws IdentityApplicationManagementException {
+
+        ServiceProvider inputSP1 = new ServiceProvider();
+        inputSP1.setApplicationName(APPLICATION_NAME_1);
+        addApplicationConfigurations(inputSP1);
+
+        // Adding application.
+        applicationManagementService.createApplication(inputSP1, SUPER_TENANT_DOMAIN_NAME, USERNAME_1);
+
+        ApplicationBasicInfo applicationBasicInfo = applicationManagementService
+                .getApplicationBasicInfoByName(APPLICATION_NAME_1, SUPER_TENANT_DOMAIN_NAME);
+        String resourceID = applicationBasicInfo.getApplicationResourceId();
+        AuthenticationStep[] steps = applicationManagementService.getConfiguredAuthenticators(resourceID,
+                SUPER_TENANT_DOMAIN_NAME);
+
+        Assert.assertEquals(steps.length, 1);
+        Assert.assertEquals(steps[0].getStepOrder(), 1);
+        applicationManagementService.deleteApplication(APPLICATION_NAME_1, SUPER_TENANT_DOMAIN_NAME, USERNAME_1);
+    }
+
 
     @Test
     public void testGetCountOfAllApplications() throws IdentityApplicationManagementException {
@@ -360,14 +616,93 @@ public class ApplicationManagementServiceImplTest extends PowerMockTestCase {
         applicationManagementService.deleteApplications(SUPER_TENANT_ID);
     }
 
-    @Test
-    public void testGetCountOfApplicationsFilter() throws IdentityApplicationManagementException {
+    @DataProvider(name = "getOAuthApplicationCountDataProvider")
+    public Object[][] getOAuthApplicationCountDataProvider() {
 
-        addApplications();
-        Assert.assertEquals(applicationManagementService.getCountOfApplications(SUPER_TENANT_DOMAIN_NAME,
-                USERNAME_1, APPLICATION_NAME_1), 1);
-        Assert.assertEquals(applicationManagementService.getCountOfApplications(SUPER_TENANT_DOMAIN_NAME,
-                USERNAME_1, APPLICATION_NAME_2), 1);
+        return new Object[][]{
+            {APPLICATION_NAME_FILTER_1, 1},
+            {APPLICATION_NAME_FILTER_2, 1},
+            {String.format(APPLICATION_CLIENT_ID_FILTER, APPLICATION_INBOUND_AUTH_KEY_1), 1},
+            {String.format(APPLICATION_CLIENT_ID_FILTER, RANDOM_STRING), 0},
+            {String.format(APPLICATION_NAME_OR_CLIENT_ID_FILTER, APPLICATION_INBOUND_AUTH_KEY_1), 1},
+            {String.format(APPLICATION_CLIENT_ID_FILTER, RANDOM_STRING), 0},
+            {String.format(APPLICATION_NAME_AND_CLIENT_ID_FILTER, APPLICATION_INBOUND_AUTH_KEY_1), 1},
+            {String.format(APPLICATION_NAME_AND_CLIENT_ID_FILTER, APPLICATION_INBOUND_AUTH_KEY_2), 0},
+            {String.format(APPLICATION_NAME_AND_CLIENT_ID_OR_ISSUER_FILTER, APPLICATION_INBOUND_AUTH_KEY_1,
+                    APPLICATION_INBOUND_AUTH_KEY_2), 1},
+            {String.format(APPLICATION_NAME_AND_CLIENT_ID_OR_ISSUER_FILTER, APPLICATION_INBOUND_AUTH_KEY_2,
+                    APPLICATION_INBOUND_AUTH_KEY_1), 0}
+        };
+    }
+
+    @Test(dataProvider = "getOAuthApplicationCountDataProvider")
+    public void testGetCountOfOAuth2ApplicationsWithFilter(String filter, int expectedResult)
+            throws IdentityApplicationManagementException {
+
+        ServiceProvider inputSP1 = new ServiceProvider();
+        inputSP1.setApplicationName(APPLICATION_NAME_1);
+        addApplicationConfigurations(inputSP1);
+        setApplicationInboundAuthConfigs(inputSP1, APPLICATION_INBOUND_AUTH_KEY_1, "oauth2");
+
+        ServiceProvider inputSP2 = new ServiceProvider();
+        inputSP2.setApplicationName(APPLICATION_NAME_2);
+        addApplicationConfigurations(inputSP2);
+        setApplicationInboundAuthConfigs(inputSP2, APPLICATION_INBOUND_AUTH_KEY_2, "oauth2");
+
+        // Adding application.
+        applicationManagementService.createApplication(inputSP1, SUPER_TENANT_DOMAIN_NAME, USERNAME_1);
+        applicationManagementService.createApplication(inputSP2, SUPER_TENANT_DOMAIN_NAME, USERNAME_1);
+
+        // Test get count of applications with filter.
+        Assert.assertEquals(applicationManagementService.getCountOfApplications(SUPER_TENANT_DOMAIN_NAME, USERNAME_1,
+                filter), expectedResult);
+
+        // Deleting all added applications.
+        applicationManagementService.deleteApplications(SUPER_TENANT_ID);
+    }
+
+    @DataProvider(name = "getSAMLApplicationCountDataProvider")
+    public Object[][] getSAMLApplicationCountDataProvider() {
+
+        return new Object[][]{
+            {APPLICATION_NAME_FILTER_1, 1},
+            {APPLICATION_NAME_FILTER_2, 1},
+            {String.format(APPLICATION_ISSUER_FILTER, APPLICATION_INBOUND_AUTH_KEY_1), 1},
+            {String.format(APPLICATION_ISSUER_FILTER, RANDOM_STRING), 0},
+            {String.format(APPLICATION_NAME_OR_ISSUER_FILTER, APPLICATION_INBOUND_AUTH_KEY_1), 1},
+            {String.format(APPLICATION_ISSUER_FILTER, RANDOM_STRING), 0},
+            {String.format(APPLICATION_NAME_AND_ISSUER_FILTER, APPLICATION_INBOUND_AUTH_KEY_1), 1},
+            {String.format(APPLICATION_NAME_AND_ISSUER_FILTER, APPLICATION_INBOUND_AUTH_KEY_2), 0},
+            {String.format(APPLICATION_NAME_AND_CLIENT_ID_OR_ISSUER_FILTER, APPLICATION_INBOUND_AUTH_KEY_1,
+                    APPLICATION_INBOUND_AUTH_KEY_2), 1},
+            {String.format(APPLICATION_NAME_AND_CLIENT_ID_OR_ISSUER_FILTER, APPLICATION_INBOUND_AUTH_KEY_2,
+                    APPLICATION_INBOUND_AUTH_KEY_1), 1},
+            {String.format(APPLICATION_ISSUER_OR_ISSUER_FILTER, APPLICATION_INBOUND_AUTH_KEY_2,
+                    APPLICATION_INBOUND_AUTH_KEY_1), 2}
+        };
+    }
+
+    @Test(dataProvider = "getSAMLApplicationCountDataProvider")
+    public void testGetCountOfSAMLApplicationsWithFilter(String filter, int expectedResult)
+            throws IdentityApplicationManagementException {
+
+        ServiceProvider inputSP1 = new ServiceProvider();
+        inputSP1.setApplicationName(APPLICATION_NAME_1);
+        addApplicationConfigurations(inputSP1);
+        setApplicationInboundAuthConfigs(inputSP1, APPLICATION_INBOUND_AUTH_KEY_1, "samlsso");
+
+        ServiceProvider inputSP2 = new ServiceProvider();
+        inputSP2.setApplicationName(APPLICATION_NAME_2);
+        addApplicationConfigurations(inputSP2);
+        setApplicationInboundAuthConfigs(inputSP2, APPLICATION_INBOUND_AUTH_KEY_2, "samlsso");
+
+        // Adding application.
+        applicationManagementService.createApplication(inputSP1, SUPER_TENANT_DOMAIN_NAME, USERNAME_1);
+        applicationManagementService.createApplication(inputSP2, SUPER_TENANT_DOMAIN_NAME, USERNAME_1);
+
+        // Test get count of applications with filter.
+        Assert.assertEquals(applicationManagementService.getCountOfApplications(SUPER_TENANT_DOMAIN_NAME, USERNAME_1,
+                filter), expectedResult);
 
         // Deleting all added applications.
         applicationManagementService.deleteApplications(SUPER_TENANT_ID);
@@ -469,7 +804,7 @@ public class ApplicationManagementServiceImplTest extends PowerMockTestCase {
         String resourceId = applicationManagementService.createApplication((ServiceProvider) serviceProvider,
                 tenantDomain, username);
 
-        // Retrieving application by ResourceId
+        // Retrieving application by ResourceId.
         ServiceProvider expectedSP = applicationManagementService.getApplicationByResourceId(resourceId,
                 tenantDomain);
         Assert.assertEquals(resourceId, expectedSP.getApplicationResourceId());
@@ -479,7 +814,7 @@ public class ApplicationManagementServiceImplTest extends PowerMockTestCase {
         Assert.assertEquals(applicationBasicInfo.getApplicationName(), ((ServiceProvider) serviceProvider).
                 getApplicationName());
 
-        // Deleting added application
+        // Deleting added application.
         applicationManagementService.deleteApplicationByResourceId(resourceId, tenantDomain, username);
     }
 
@@ -501,7 +836,7 @@ public class ApplicationManagementServiceImplTest extends PowerMockTestCase {
         Assert.assertEquals(actual.getOwner().getUserName(), USERNAME_1);
         Assert.assertEquals(actual.getDescription(), inputSP.getDescription());
 
-        // Deleting added application.
+        // Deleting all added application.
         applicationManagementService.deleteApplications(SUPER_TENANT_ID);
     }
 
@@ -550,20 +885,132 @@ public class ApplicationManagementServiceImplTest extends PowerMockTestCase {
                 REGISTRY_SYSTEM_USERNAME);
     }
 
+    @DataProvider(name = "testAddApplicationWithAPIBasedAuthenticationData")
+    public Object[][] testAddApplicationWithAPIBasedAuthenticationData() {
+
+
+        return new Object[][]{
+                {true},
+                {false}
+        };
+    }
+
+    @Test(dataProvider = "testAddApplicationWithAPIBasedAuthenticationData")
+    public void testAddApplicationWithAPIBasedAuthentication(boolean isAPIBasedAuthenticationEnabled) throws Exception {
+
+
+        ServiceProvider inputSP = new ServiceProvider();
+        inputSP.setApplicationName(APPLICATION_NAME_1);
+
+        addApplicationConfigurations(inputSP);
+        inputSP.setAPIBasedAuthenticationEnabled(isAPIBasedAuthenticationEnabled);
+
+        // Adding new application.
+        ServiceProvider addedSP = applicationManagementService.addApplication(inputSP, SUPER_TENANT_DOMAIN_NAME,
+                REGISTRY_SYSTEM_USERNAME);
+        Assert.assertEquals(addedSP.isAPIBasedAuthenticationEnabled(), isAPIBasedAuthenticationEnabled);
+
+
+        //  Retrieving added application.
+        ServiceProvider retrievedSP = applicationManagementService.getApplicationExcludingFileBasedSPs
+                (inputSP.getApplicationName(), SUPER_TENANT_DOMAIN_NAME);
+        Assert.assertEquals(retrievedSP.isAPIBasedAuthenticationEnabled(), isAPIBasedAuthenticationEnabled);
+
+        // Updating the application by changing the isManagementApplication flag. It should be changed.
+        inputSP.setAPIBasedAuthenticationEnabled(!isAPIBasedAuthenticationEnabled);
+
+        applicationManagementService.updateApplication(inputSP, SUPER_TENANT_DOMAIN_NAME, REGISTRY_SYSTEM_USERNAME);
+
+        retrievedSP = applicationManagementService.getApplicationExcludingFileBasedSPs
+                (inputSP.getApplicationName(), SUPER_TENANT_DOMAIN_NAME);
+
+        Assert.assertEquals(retrievedSP.isAPIBasedAuthenticationEnabled(), !isAPIBasedAuthenticationEnabled);
+
+        // Deleting added application.
+        applicationManagementService.deleteApplication(inputSP.getApplicationName(), SUPER_TENANT_DOMAIN_NAME,
+                REGISTRY_SYSTEM_USERNAME);
+    }
+
+    @DataProvider(name = "testAddApplicationWithAttestationData")
+    public Object[][] testAddApplicationWithAttestationData() {
+
+
+        return new Object[][]{
+                {true, "com.wso2.sample.mobile.application", "sampleCredentials", "APPLETEAMID.com.wso2.mobile.sample"}
+        };
+    }
+
+    @Test(dataProvider = "testAddApplicationWithAttestationData")
+    public void testAddApplicationWithAttestationData(boolean isAttestationEnabled,
+                                                      String androidPackageName,
+                                                      String androidCredentials,
+                                                      String appleAppId) throws Exception {
+
+        ResolvedSecret resolvedSecret = new ResolvedSecret();
+        resolvedSecret.setResolvedSecretValue(androidCredentials);
+        SecretResolveManager secretResolveManager = mock(SecretResolveManagerImpl.class);
+        ApplicationManagementServiceComponentHolder.getInstance().setSecretResolveManager(secretResolveManager);
+        when(secretResolveManager.getResolvedSecret(anyString(), anyString())).thenReturn(resolvedSecret);
+
+        ServiceProvider inputSP = new ServiceProvider();
+        inputSP.setApplicationName(APPLICATION_NAME_1);
+
+        addApplicationConfigurations(inputSP);
+        ClientAttestationMetaData clientAttestationMetaData = new ClientAttestationMetaData();
+        clientAttestationMetaData.setAttestationEnabled(isAttestationEnabled);
+        clientAttestationMetaData.setAndroidPackageName(androidPackageName);
+        clientAttestationMetaData.setAppleAppId(appleAppId);
+        clientAttestationMetaData.setAndroidAttestationServiceCredentials(androidCredentials);
+        inputSP.setClientAttestationMetaData(clientAttestationMetaData);
+
+        // Adding new application.
+        ServiceProvider addedSP = applicationManagementService.addApplication(inputSP, SUPER_TENANT_DOMAIN_NAME,
+                REGISTRY_SYSTEM_USERNAME);
+        Assert.assertEquals(addedSP.getClientAttestationMetaData().isAttestationEnabled(), isAttestationEnabled);
+        Assert.assertEquals(addedSP.getClientAttestationMetaData().getAndroidPackageName(), androidPackageName);
+        Assert.assertEquals(addedSP.getClientAttestationMetaData().getAndroidAttestationServiceCredentials(),
+                androidCredentials);
+        Assert.assertEquals(addedSP.getClientAttestationMetaData().getAppleAppId(),
+                appleAppId);
+
+        SecretManager secretManager = mock(SecretManagerImpl.class);
+        when(secretManager.isSecretExist(anyString(), anyString())).thenReturn(true);
+        ApplicationManagementServiceComponentHolder.getInstance().setSecretManager(secretManager);
+
+        //  Retrieving added application.
+        ServiceProvider retrievedSP = applicationManagementService.getApplicationExcludingFileBasedSPs
+                (inputSP.getApplicationName(), SUPER_TENANT_DOMAIN_NAME);
+        Assert.assertEquals(retrievedSP.getClientAttestationMetaData().isAttestationEnabled(), isAttestationEnabled);
+        Assert.assertEquals(retrievedSP.getClientAttestationMetaData().getAndroidPackageName(), androidPackageName);
+        Assert.assertEquals(retrievedSP.getClientAttestationMetaData().getAppleAppId(), appleAppId);
+        Assert.assertEquals(retrievedSP.getClientAttestationMetaData().getAndroidAttestationServiceCredentials(),
+                androidCredentials);
+        // Updating the application by changing the isManagementApplication flag. It should be changed.
+        ClientAttestationMetaData clientAttestationMetaData2 = new ClientAttestationMetaData();
+        clientAttestationMetaData2.setAttestationEnabled(!isAttestationEnabled);
+        clientAttestationMetaData2.setAndroidPackageName(null);
+        clientAttestationMetaData2.setAppleAppId(null);
+        clientAttestationMetaData2.setAndroidAttestationServiceCredentials(null);
+        inputSP.setClientAttestationMetaData(clientAttestationMetaData2);
+        applicationManagementService.updateApplication(inputSP, SUPER_TENANT_DOMAIN_NAME, REGISTRY_SYSTEM_USERNAME);
+
+        retrievedSP = applicationManagementService.getApplicationExcludingFileBasedSPs
+                (inputSP.getApplicationName(), SUPER_TENANT_DOMAIN_NAME);
+
+        Assert.assertEquals(retrievedSP.getClientAttestationMetaData().isAttestationEnabled(), !isAttestationEnabled);
+        Assert.assertNull(retrievedSP.getClientAttestationMetaData().getAndroidAttestationServiceCredentials());
+        // Deleting added application.
+        applicationManagementService.deleteApplication(inputSP.getApplicationName(), SUPER_TENANT_DOMAIN_NAME,
+                REGISTRY_SYSTEM_USERNAME);
+    }
+
     private void addApplicationConfigurations(ServiceProvider serviceProvider) {
 
         serviceProvider.setDescription("Created for testing");
         serviceProvider.setSaasApp(TRUE);
 
         // Inbound Authentication Configurations.
-        InboundAuthenticationConfig inboundAuthenticationConfig = new InboundAuthenticationConfig();
-        InboundAuthenticationRequestConfig authRequestConfig = new InboundAuthenticationRequestConfig();
-        authRequestConfig.setInboundAuthKey("auth key");
-        authRequestConfig.setInboundAuthType("oauth2");
-        InboundAuthenticationRequestConfig[] authRequests = new InboundAuthenticationRequestConfig[]
-                {authRequestConfig};
-        inboundAuthenticationConfig.setInboundAuthenticationRequestConfigs(authRequests);
-        serviceProvider.setInboundAuthenticationConfig(inboundAuthenticationConfig);
+        setApplicationInboundAuthConfigs(serviceProvider, "auth key", "oauth2");
 
         // Inbound Provisioning Configurations.
         InboundProvisioningConfig provisioningConfig = new InboundProvisioningConfig();
@@ -626,6 +1073,25 @@ public class ApplicationManagementServiceImplTest extends PowerMockTestCase {
         permissionsAndRoleConfig.setRoleMappings(roleMappings);
     }
 
+    private void setApplicationInboundAuthConfigs(ServiceProvider serviceProvider, String authKey, String authType) {
+
+        InboundAuthenticationConfig inboundAuthenticationConfig = new InboundAuthenticationConfig();
+        InboundAuthenticationRequestConfig authRequestConfig = new InboundAuthenticationRequestConfig();
+        authRequestConfig.setInboundAuthKey(authKey);
+        authRequestConfig.setInboundAuthType(authType);
+        InboundAuthenticationRequestConfig[] authRequests = new InboundAuthenticationRequestConfig[]
+                {authRequestConfig};
+        inboundAuthenticationConfig.setInboundAuthenticationRequestConfigs(authRequests);
+        serviceProvider.setInboundAuthenticationConfig(inboundAuthenticationConfig);
+    }
+    
+    private InboundProtocolsDTO setInboundProtocol() {
+
+        InboundProtocolsDTO inboundProtocolsDTO = new InboundProtocolsDTO();
+        inboundProtocolsDTO.addProtocolConfiguration(() -> "oauth2");
+        return inboundProtocolsDTO;
+    }
+
     private void setupConfiguration() throws UserStoreException, RegistryException {
 
         String carbonHome = Paths.get(System.getProperty("user.dir"), "target", "test-classes", "repository").
@@ -654,6 +1120,8 @@ public class ApplicationManagementServiceImplTest extends PowerMockTestCase {
         ApplicationManagementServiceComponentHolder holder = ApplicationManagementServiceComponentHolder.getInstance();
         setInstanceValue(testSessionRealmService, RealmService.class, ApplicationManagementServiceComponentHolder.class,
                 holder);
+        setInstanceValue(new RegistryBasedApplicationPermissionProvider(), ApplicationPermissionProvider.class,
+                ApplicationManagementServiceComponentHolder.class, holder);
 
        // Configure Registry Service.
         RegistryService mockRegistryService = mock(RegistryService.class);
@@ -667,6 +1135,9 @@ public class ApplicationManagementServiceImplTest extends PowerMockTestCase {
         Collection mockPermissionNode = mock(Collection.class);
         when(mockRegistry.newCollection()).thenReturn(mockPermissionNode);
         when(mockRegistry.get(anyString())).thenReturn(mockPermissionNode);
+        when(CarbonContext.getThreadLocalCarbonContext().getRegistry(
+                RegistryType.USER_GOVERNANCE)).thenReturn(mockRegistry);
+        when(mockRegistry.resourceExists(anyString())).thenReturn(FALSE);
     }
 
     private void setInstanceValue(Object value, Class valueType, Class clazz, Object instance) {

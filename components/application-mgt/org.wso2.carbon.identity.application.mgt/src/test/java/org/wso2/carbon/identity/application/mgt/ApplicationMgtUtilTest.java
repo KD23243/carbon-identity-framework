@@ -16,10 +16,8 @@
 
 package org.wso2.carbon.identity.application.mgt;
 
-import org.mockito.Mockito;
-import org.powermock.core.classloader.annotations.PrepareForTest;
-import org.powermock.modules.testng.PowerMockTestCase;
-import org.testng.Assert;
+import org.mockito.MockedStatic;
+import org.mockito.stubbing.Answer;
 import org.testng.annotations.BeforeTest;
 import org.testng.annotations.DataProvider;
 import org.testng.annotations.Test;
@@ -36,6 +34,7 @@ import org.wso2.carbon.identity.application.common.model.ServiceProvider;
 import org.wso2.carbon.identity.application.common.model.User;
 import org.wso2.carbon.identity.application.mgt.dao.ApplicationDAO;
 import org.wso2.carbon.identity.application.mgt.internal.ApplicationManagementServiceComponentHolder;
+import org.wso2.carbon.identity.application.mgt.provider.RegistryBasedApplicationPermissionProvider;
 import org.wso2.carbon.identity.core.util.IdentityTenantUtil;
 import org.wso2.carbon.identity.core.util.IdentityUtil;
 import org.wso2.carbon.registry.api.Collection;
@@ -46,22 +45,25 @@ import org.wso2.carbon.user.api.UserRealm;
 import org.wso2.carbon.user.api.UserStoreException;
 import org.wso2.carbon.user.api.UserStoreManager;
 import org.wso2.carbon.user.core.AuthorizationManager;
+import org.wso2.carbon.user.core.common.AbstractUserStoreManager;
 import org.wso2.carbon.user.core.config.RealmConfiguration;
+import org.wso2.carbon.user.core.service.RealmService;
+import org.wso2.carbon.user.core.util.UserCoreUtil;
 
 import java.nio.file.Paths;
 
 import static java.lang.Boolean.FALSE;
 import static java.lang.Boolean.TRUE;
-import static org.junit.Assert.assertEquals;
-import static org.mockito.Matchers.anyInt;
-import static org.mockito.Matchers.anyString;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
-import static org.powermock.api.mockito.PowerMockito.doNothing;
-import static org.powermock.api.mockito.PowerMockito.doThrow;
-import static org.powermock.api.mockito.PowerMockito.mock;
-import static org.powermock.api.mockito.PowerMockito.mockStatic;
-import static org.powermock.api.mockito.PowerMockito.when;
+import static org.mockito.Mockito.when;
+import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertThrows;
 import static org.wso2.carbon.base.MultitenantConstants.SUPER_TENANT_ID;
 import static org.wso2.carbon.base.MultitenantConstants.TENANT_DOMAIN;
@@ -71,22 +73,28 @@ import static org.wso2.carbon.identity.application.mgt.ApplicationMgtUtil.PATH_C
 import static org.wso2.carbon.user.core.constants.UserCoreErrorConstants.ErrorMessages.ERROR_CODE_ROLE_ALREADY_EXISTS;
 import static org.wso2.carbon.utils.multitenancy.MultitenantConstants.SUPER_TENANT_DOMAIN_NAME;
 
-
-@PrepareForTest({IdentityUtil.class, IdentityTenantUtil.class, CarbonContext.class, PrivilegedCarbonContext.class,
-        ApplicationManagementServiceComponentHolder.class, ApplicationMgtSystemConfig.class, ServerConfiguration.class})
 /*
   Unit tests for ApplicationMgtUtil.
  */
-public class ApplicationMgtUtilTest extends PowerMockTestCase {
+public class ApplicationMgtUtilTest {
+
+    ApplicationManagementServiceComponentHolder mockApplicationManagementServiceComponentHolder;
 
     private CarbonContext mockCarbonContext;
     private UserStoreManager mockUserStoreManager;
+    private AbstractUserStoreManager mockAbstractUserStoreManager;
     private UserRealm mockUserRealm;
+    private UserRealm mockUserRealmFromRealmService;
+    private RealmService mockRealmService;
     private RealmConfiguration mockRealmConfiguration;
     private Registry mockTenantRegistry;
     private Collection mockAppRootNode;
     private ApplicationPermission applicationPermission;
     private ApplicationPermission[] applicationPermissions;
+    private Collection mockAppCollection;
+    private Collection childCollection;
+
+    private RegistryBasedApplicationPermissionProvider registryBasedApplicationPermissionProvider;
 
     private static final String USERNAME = "user";
     private static final String APPLICATION_NAME = "applicationName";
@@ -107,10 +115,18 @@ public class ApplicationMgtUtilTest extends PowerMockTestCase {
 
         mockAppRootNode = mock(Collection.class);
         mockRealmConfiguration = mock(RealmConfiguration.class);
+        mockAppCollection = mock(Collection.class);
+        childCollection = mock(Collection.class);
+        mockApplicationManagementServiceComponentHolder = mock(ApplicationManagementServiceComponentHolder.class);
 
         applicationPermission = new ApplicationPermission();
         applicationPermission.setValue(USERNAME);
         applicationPermissions = new ApplicationPermission[]{applicationPermission};
+        registryBasedApplicationPermissionProvider = new RegistryBasedApplicationPermissionProvider();
+
+        String carbonHome = Paths.get(System.getProperty("user.dir"), "target", "test-classes").toString();
+        System.setProperty(CarbonBaseConstants.CARBON_HOME, carbonHome);
+        System.setProperty(CarbonBaseConstants.CARBON_CONFIG_DIR_PATH, Paths.get(carbonHome, "conf").toString());
     }
 
     @DataProvider(name = "getAppNamesForDefaultRegex")
@@ -137,7 +153,7 @@ public class ApplicationMgtUtilTest extends PowerMockTestCase {
 
         // Default app validation regex should allow names with alphanumeric, dot, space, underscore and hyphens.
         // Should not allow leading or trailing spaces.
-        Assert.assertEquals(ApplicationMgtUtil.isRegexValidated(appName), isValidName);
+        assertEquals(ApplicationMgtUtil.isRegexValidated(appName), isValidName);
     }
 
     @DataProvider(name = "getAppNamesForCustomRegex")
@@ -156,10 +172,11 @@ public class ApplicationMgtUtilTest extends PowerMockTestCase {
 
         final String customRegEx = "^[a-zA-Z0-9]+";
 
-        mockStatic(IdentityUtil.class);
-        when(IdentityUtil.getProperty("ServiceProviders.SPNameRegex")).thenReturn(customRegEx);
+        try (MockedStatic<IdentityUtil> identityUtil = mockStatic(IdentityUtil.class)) {
+            identityUtil.when(() -> IdentityUtil.getProperty("ServiceProviders.SPNameRegex")).thenReturn(customRegEx);
 
-        Assert.assertEquals(ApplicationMgtUtil.isRegexValidated(appName), isValidName);
+            assertEquals(ApplicationMgtUtil.isRegexValidated(appName), isValidName);
+        }
     }
 
     @Test
@@ -185,15 +202,11 @@ public class ApplicationMgtUtilTest extends PowerMockTestCase {
     @Test(dataProvider = "validateRolesDataProvider")
     public void testValidateRoles(String allowRoleValidationProperty, Boolean expected) {
 
-        validateRole(allowRoleValidationProperty);
-        assertEquals(ApplicationMgtUtil.validateRoles(), expected);
-    }
-
-    private void validateRole(String allowRoleValidationProperty) {
-
-        mockStatic(IdentityUtil.class);
-        when(IdentityUtil.getProperty(ENABLE_APPLICATION_ROLE_VALIDATION_PROPERTY)).
-                thenReturn(allowRoleValidationProperty);
+        try (MockedStatic<IdentityUtil> identityUtil = mockStatic(IdentityUtil.class)) {
+            identityUtil.when(() -> IdentityUtil.getProperty(ENABLE_APPLICATION_ROLE_VALIDATION_PROPERTY)).
+                    thenReturn(allowRoleValidationProperty);
+            assertEquals(ApplicationMgtUtil.validateRoles(), expected);
+        }
     }
 
     @DataProvider(name = "userAuthorizeDataProvider")
@@ -217,134 +230,181 @@ public class ApplicationMgtUtilTest extends PowerMockTestCase {
                                      String[] userRoles, int applicationId, Boolean expected) throws
             UserStoreException, IdentityApplicationManagementException {
 
-        validateRole(allowRoleValidationProperty);
+        try (MockedStatic<IdentityUtil> identityUtil = mockStatic(IdentityUtil.class);
+             MockedStatic<ApplicationMgtSystemConfig> applicationMgtSystemConfig = mockStatic(
+                     ApplicationMgtSystemConfig.class);
+             MockedStatic<PrivilegedCarbonContext> privilegedCarbonContext = mockStatic(PrivilegedCarbonContext.class);
+             MockedStatic<CarbonContext> carbonContext = mockStatic(CarbonContext.class)) {
+            identityUtil.when(() -> IdentityUtil.getProperty(ENABLE_APPLICATION_ROLE_VALIDATION_PROPERTY)).
+                    thenReturn(allowRoleValidationProperty);
 
-        mockStatic(ApplicationMgtSystemConfig.class);
-        ApplicationDAO mockApplicationDAO = mock(ApplicationDAO.class);
-        ApplicationMgtSystemConfig mockAppMgtSystemConfig = mock(ApplicationMgtSystemConfig.class);
-        when(ApplicationMgtSystemConfig.getInstance()).thenReturn(mockAppMgtSystemConfig);
-        when(mockAppMgtSystemConfig.getApplicationDAO()).thenReturn(mockApplicationDAO);
-        when(mockApplicationDAO.getApplicationName(anyInt())).thenReturn(APPLICATION_NAME);
+            ApplicationDAO mockApplicationDAO = mock(ApplicationDAO.class);
+            ApplicationMgtSystemConfig mockAppMgtSystemConfig = mock(ApplicationMgtSystemConfig.class);
+            applicationMgtSystemConfig.when(ApplicationMgtSystemConfig::getInstance).thenReturn(mockAppMgtSystemConfig);
+            when(mockAppMgtSystemConfig.getApplicationDAO()).thenReturn(mockApplicationDAO);
+            when(mockApplicationDAO.getApplicationName(anyInt())).thenReturn(APPLICATION_NAME);
 
-        mockUserStoreManager();
-        when(mockUserStoreManager.getRoleListOfUser(userName)).thenReturn(userRoles);
+            mockUserStoreManager(privilegedCarbonContext, carbonContext);
+            when(mockUserStoreManager.getRoleListOfUser(userName)).thenReturn(userRoles);
 
-        assertEquals(ApplicationMgtUtil.isUserAuthorized(applicationName, userName), expected);
-        assertEquals(ApplicationMgtUtil.isUserAuthorized(applicationName, userName, applicationId), expected);
+            assertEquals(ApplicationMgtUtil.isUserAuthorized(applicationName, userName), expected);
+            assertEquals(ApplicationMgtUtil.isUserAuthorized(applicationName, userName, applicationId), expected);
+        }
     }
 
     @Test
     public void testIsUserAuthorizedUserStoreException() throws UserStoreException {
 
-        mockUserStoreManager();
-        doThrow(new UserStoreException("")).when(mockUserStoreManager).getRoleListOfUser(
-                anyString());
+        try (MockedStatic<PrivilegedCarbonContext> privilegedCarbonContext = mockStatic(PrivilegedCarbonContext.class);
+             MockedStatic<CarbonContext> carbonContext = mockStatic(CarbonContext.class)) {
+            mockUserStoreManager(privilegedCarbonContext, carbonContext);
+            doThrow(new UserStoreException("")).when(mockUserStoreManager).getRoleListOfUser(anyString());
 
-        assertThrows(IdentityApplicationManagementException.class, () -> ApplicationMgtUtil.isUserAuthorized
-                (APPLICATION_NAME, USERNAME));
+            assertThrows(IdentityApplicationManagementException.class, () -> ApplicationMgtUtil.isUserAuthorized
+                    (APPLICATION_NAME, USERNAME));
+        }
     }
 
     @Test
     public void testCreateAppRole() throws UserStoreException, IdentityApplicationManagementException {
 
-        mockUserStoreManager();
-        ApplicationMgtUtil.createAppRole(APPLICATION_NAME, USERNAME);
-        verify(mockUserStoreManager).addRole(ROLE_NAME, new String[]{USERNAME}, null);
+        try (MockedStatic<PrivilegedCarbonContext> privilegedCarbonContext = mockStatic(PrivilegedCarbonContext.class);
+             MockedStatic<CarbonContext> carbonContext = mockStatic(CarbonContext.class)) {
+            mockUserStoreManager(privilegedCarbonContext, carbonContext);
+            ApplicationMgtUtil.createAppRole(APPLICATION_NAME, USERNAME);
+            verify(mockUserStoreManager).addRole(ROLE_NAME, new String[]{USERNAME}, null);
+        }
     }
 
     @Test
     public void testCreateAppRoleUserStoreException() throws UserStoreException {
 
-        mockUserStoreManager();
-        UserStoreException mockUserStoreException = mock(UserStoreException.class);
+        try (MockedStatic<PrivilegedCarbonContext> privilegedCarbonContext = mockStatic(PrivilegedCarbonContext.class);
+             MockedStatic<CarbonContext> carbonContext = mockStatic(CarbonContext.class)) {
+            mockUserStoreManager(privilegedCarbonContext, carbonContext);
+            UserStoreException mockUserStoreException = mock(UserStoreException.class);
+            doThrow(mockUserStoreException).when(mockUserStoreManager).addRole(ROLE_NAME, new String[]{USERNAME},
+                    null);
+            when(mockUserStoreException.getMessage()).thenReturn(String.format(ERROR_CODE_ROLE_ALREADY_EXISTS.
+                    getMessage() + CODE, ROLE_NAME));
 
-        doThrow(mockUserStoreException).when(mockUserStoreManager).addRole(ROLE_NAME, new String[]{USERNAME},
-                null);
-        when(mockUserStoreException.getMessage()).thenReturn(String.format(ERROR_CODE_ROLE_ALREADY_EXISTS.
-                getMessage() + CODE, ROLE_NAME));
+            doThrow(new UserStoreException("")).when(mockUserStoreManager).updateRoleListOfUser(USERNAME, null,
+                    new String[]{ROLE_NAME});
+            when(mockUserStoreManager.getRoleListOfUser(USERNAME)).thenReturn(new String[]{ROLE_NAME});
 
-        doThrow(new UserStoreException("")).when(mockUserStoreManager).updateRoleListOfUser(USERNAME, null,
-                new String[]{ROLE_NAME});
-        when(mockUserStoreManager.getRoleListOfUser(USERNAME)).thenReturn(new String[]{ROLE_NAME});
-
-        try {
-            ApplicationMgtUtil.createAppRole(APPLICATION_NAME, USERNAME);
-        } catch (IdentityApplicationManagementException e) {
-            assertEquals(e.getMessage(), "Error while updating application role: " + ROLE_NAME + " with user "
-                    + USERNAME);
+            try {
+                ApplicationMgtUtil.createAppRole(APPLICATION_NAME, USERNAME);
+            } catch (IdentityApplicationManagementException e) {
+                assertEquals(e.getMessage(), "Error while updating application role: " + ROLE_NAME + " with user "
+                        + USERNAME);
+            }
         }
     }
 
     @Test
     public void testDeleteAppRole() throws UserStoreException, IdentityApplicationManagementException {
 
-        mockUserStoreManager();
-        ApplicationMgtUtil.deleteAppRole(APPLICATION_NAME);
-        verify(mockUserStoreManager).deleteRole(ROLE_NAME);
+        try (MockedStatic<PrivilegedCarbonContext> privilegedCarbonContext = mockStatic(PrivilegedCarbonContext.class);
+             MockedStatic<CarbonContext> carbonContext = mockStatic(CarbonContext.class)) {
+            mockUserStoreManager(privilegedCarbonContext, carbonContext);
+            ApplicationMgtUtil.deleteAppRole(APPLICATION_NAME);
+            verify(mockUserStoreManager).deleteRole(ROLE_NAME);
+        }
     }
 
     @Test
     public void testDeleteAppRoleUserStoreException() throws UserStoreException {
 
-        mockUserStoreManager();
-        doThrow(new UserStoreException("")).when(mockUserStoreManager).deleteRole(ROLE_NAME);
+        try (MockedStatic<PrivilegedCarbonContext> privilegedCarbonContext = mockStatic(PrivilegedCarbonContext.class);
+             MockedStatic<CarbonContext> carbonContext = mockStatic(CarbonContext.class)) {
+            mockUserStoreManager(privilegedCarbonContext, carbonContext);
+            doThrow(new UserStoreException("")).when(mockUserStoreManager).deleteRole(ROLE_NAME);
 
-        assertThrows(IdentityApplicationManagementException.class, () -> ApplicationMgtUtil.deleteAppRole
-                (APPLICATION_NAME));
+            assertThrows(IdentityApplicationManagementException.class, () -> ApplicationMgtUtil.deleteAppRole
+                    (APPLICATION_NAME));
+        }
     }
 
     @Test
     public void testRenameRole() throws UserStoreException {
 
-        mockUserStoreManager();
-        ApplicationMgtUtil.renameRole(APPLICATION_NAME, NEW_APPLICATION_NAME);
-        verify(mockUserStoreManager).updateRoleName("Internal/" + APPLICATION_NAME, "Internal/" +
-                NEW_APPLICATION_NAME);
+        try (MockedStatic<PrivilegedCarbonContext> privilegedCarbonContext = mockStatic(PrivilegedCarbonContext.class);
+             MockedStatic<CarbonContext> carbonContext = mockStatic(CarbonContext.class)) {
+            mockUserStoreManager(privilegedCarbonContext, carbonContext);
+            ApplicationMgtUtil.renameRole(APPLICATION_NAME, NEW_APPLICATION_NAME);
+            verify(mockUserStoreManager).updateRoleName("Internal/" + APPLICATION_NAME, "Internal/" +
+                    NEW_APPLICATION_NAME);
+        }
     }
 
     @Test
     public void testRenameAppPermissionPathNode() throws IdentityApplicationManagementException, UserStoreException,
             RegistryException {
 
-        loadPermissions();
-        Collection permissionNode = mock(Collection.class);
-        when(mockTenantRegistry.newCollection()).thenReturn(permissionNode);
+        try (MockedStatic<ApplicationManagementServiceComponentHolder> applicationManagementServiceComponentHolder =
+                     mockStatic(ApplicationManagementServiceComponentHolder.class);
+             MockedStatic<PrivilegedCarbonContext> privilegedCarbonContext = mockStatic(PrivilegedCarbonContext.class);
+             MockedStatic<CarbonContext> carbonContext = mockStatic(CarbonContext.class);) {
+            applicationManagementServiceComponentHolder.when(
+                    ApplicationManagementServiceComponentHolder::getInstance).thenReturn(
+                    mockApplicationManagementServiceComponentHolder);
+            when(mockApplicationManagementServiceComponentHolder.getApplicationPermissionProvider()).thenReturn(
+                    registryBasedApplicationPermissionProvider);
 
-        String newApplicationNode = PERMISSION_PATH + PATH_CONSTANT  + NEW_APPLICATION_NAME;
-        String newApplicationPermissionPath = PERMISSION_PATH + PATH_CONSTANT + NEW_APPLICATION_NAME +
-                PATH_CONSTANT + PERMISSION + PATH_CONSTANT;
+            loadPermissions(privilegedCarbonContext, carbonContext);
+            Collection permissionNode = mock(Collection.class);
+            when(mockTenantRegistry.newCollection()).thenReturn(permissionNode);
 
-        ApplicationMgtUtil.renameAppPermissionPathNode(APPLICATION_NAME, NEW_APPLICATION_NAME);
-        verify(mockTenantRegistry, times(1)).delete(applicationPermissionPath);
-        verify(mockTenantRegistry, times(1)).delete(applicationNode);
-        verify(mockTenantRegistry, times(1)).put(newApplicationNode, permissionNode);
-        verify(mockTenantRegistry, times(1)).put(newApplicationPermissionPath, permissionNode);
+            String newApplicationNode = PERMISSION_PATH + PATH_CONSTANT + NEW_APPLICATION_NAME;
+            String newApplicationPermissionPath =
+                    PERMISSION_PATH + PATH_CONSTANT + NEW_APPLICATION_NAME + PATH_CONSTANT + PERMISSION + PATH_CONSTANT;
+
+            ApplicationMgtUtil.renameAppPermissionPathNode(APPLICATION_NAME, NEW_APPLICATION_NAME);
+            verify(mockTenantRegistry, times(1)).delete(applicationPermissionPath);
+            verify(mockTenantRegistry, times(1)).delete(applicationNode);
+            verify(mockTenantRegistry, times(1)).put(newApplicationNode, permissionNode);
+            verify(mockTenantRegistry, times(1)).put(newApplicationPermissionPath, permissionNode);
+        }
     }
 
     @Test
     public void testStorePermissions() throws  Exception {
 
-        mockTenantRegistry();
-        mockStatic(IdentityTenantUtil.class);
-        doNothing().when(IdentityTenantUtil.class, "initializeRegistry", anyInt());
+        try (MockedStatic<PrivilegedCarbonContext> privilegedCarbonContext = mockStatic(PrivilegedCarbonContext.class);
+             MockedStatic<CarbonContext> carbonContext = mockStatic(CarbonContext.class);
+             MockedStatic<ApplicationManagementServiceComponentHolder> applicationManagementServiceComponentHolder =
+                     mockStatic(ApplicationManagementServiceComponentHolder.class);
+             MockedStatic<IdentityTenantUtil> identityTenantUtil = mockStatic(IdentityTenantUtil.class)) {
 
-        when(mockCarbonContext.getTenantId()).thenReturn(SUPER_TENANT_ID);
-        when(mockTenantRegistry.resourceExists(anyString())).thenReturn(FALSE);
+            applicationManagementServiceComponentHolder.when(
+                    ApplicationManagementServiceComponentHolder::getInstance).thenReturn(
+                    mockApplicationManagementServiceComponentHolder);
+            when(mockApplicationManagementServiceComponentHolder.getApplicationPermissionProvider()).thenReturn(
+                    registryBasedApplicationPermissionProvider);
 
-        changeUserToAdmin();
-        when(mockTenantRegistry.newCollection()).thenReturn(mockAppRootNode);
+            mockTenantRegistry(privilegedCarbonContext, carbonContext);
 
-        PermissionsAndRoleConfig permissionsAndRoleConfig = new PermissionsAndRoleConfig();
-        permissionsAndRoleConfig.setPermissions(applicationPermissions);
+            identityTenantUtil.when(() -> IdentityTenantUtil.initializeRegistry(anyInt()))
+                    .thenAnswer((Answer<Void>) invocation -> null);
 
-        Resource mockResource = mock(Resource.class);
-        when(mockTenantRegistry.newResource()).thenReturn(mockResource);
+            when(mockCarbonContext.getTenantId()).thenReturn(SUPER_TENANT_ID);
+            when(mockTenantRegistry.resourceExists(anyString())).thenReturn(FALSE);
 
-        ApplicationMgtUtil.storePermissions(APPLICATION_NAME, USERNAME, permissionsAndRoleConfig);
-        verify(mockTenantRegistry, times(1)).put(PERMISSION_PATH, mockAppRootNode);
-        verify(mockTenantRegistry, times(1)).put(applicationNode, mockAppRootNode);
-        verify(mockTenantRegistry, times(1)).put(applicationNode + PATH_CONSTANT +
-                applicationPermission, mockResource);
+            changeUserToAdmin();
+            when(mockTenantRegistry.newCollection()).thenReturn(mockAppRootNode);
+
+            PermissionsAndRoleConfig permissionsAndRoleConfig = new PermissionsAndRoleConfig();
+            permissionsAndRoleConfig.setPermissions(applicationPermissions);
+
+            Resource mockResource = mock(Resource.class);
+            when(mockTenantRegistry.newResource()).thenReturn(mockResource);
+
+            ApplicationMgtUtil.storePermissions(APPLICATION_NAME, USERNAME, permissionsAndRoleConfig);
+            verify(mockTenantRegistry, times(1)).put(PERMISSION_PATH, mockAppRootNode);
+            verify(mockTenantRegistry, times(1)).put(applicationNode, mockAppRootNode);
+            verify(mockTenantRegistry, times(1)).put(applicationNode + PATH_CONSTANT +
+                    applicationPermission, mockResource);
+        }
     }
 
     @DataProvider(name = "updatePermissionDataProvider")
@@ -360,19 +420,29 @@ public class ApplicationMgtUtilTest extends PowerMockTestCase {
     public void testUpdatePermission(String[] childPermissions, int childCount) throws
             IdentityApplicationManagementException, UserStoreException, RegistryException {
 
-        loadPermissions();
-        when(mockTenantRegistry.resourceExists(anyString())).thenReturn(FALSE);
-        when(mockTenantRegistry.newCollection()).thenReturn(mockAppRootNode);
+        try (MockedStatic<ApplicationManagementServiceComponentHolder> applicationManagementServiceComponentHolder =
+                     mockStatic(ApplicationManagementServiceComponentHolder.class);
+             MockedStatic<PrivilegedCarbonContext> privilegedCarbonContext = mockStatic(PrivilegedCarbonContext.class);
+             MockedStatic<CarbonContext> carbonContext = mockStatic(CarbonContext.class);) {
+            applicationManagementServiceComponentHolder.when(
+                    ApplicationManagementServiceComponentHolder::getInstance).thenReturn(
+                    mockApplicationManagementServiceComponentHolder);
+            when(mockApplicationManagementServiceComponentHolder.getApplicationPermissionProvider()).thenReturn(
+                    registryBasedApplicationPermissionProvider);
 
-        Collection mockAppCollection = mock(Collection.class);
-        when(mockTenantRegistry.get(applicationNode)).thenReturn(mockAppCollection);
-        when(mockAppCollection.getChildren()).thenReturn(childPermissions);
-        when(mockAppCollection.getChildCount()).thenReturn(childCount);
+            loadPermissions(privilegedCarbonContext, carbonContext);
+            when(mockTenantRegistry.resourceExists(anyString())).thenReturn(FALSE);
+            when(mockTenantRegistry.newCollection()).thenReturn(mockAppRootNode);
 
-        ApplicationMgtUtil.updatePermissions(APPLICATION_NAME, applicationPermissions);
-        verify(mockTenantRegistry, times(1)).put(applicationNode, mockAppRootNode);
-        verify(mockTenantRegistry, times(1)).put(applicationPermissionPath + PATH_CONSTANT,
-                mockAppRootNode);
+            when(mockTenantRegistry.get(applicationNode)).thenReturn(mockAppCollection);
+            when(mockAppCollection.getChildren()).thenReturn(childPermissions);
+            when(mockAppCollection.getChildCount()).thenReturn(childCount);
+
+            ApplicationMgtUtil.updatePermissions(APPLICATION_NAME, applicationPermissions);
+            verify(mockTenantRegistry, times(1)).put(applicationNode, mockAppRootNode);
+            verify(mockTenantRegistry, times(1)).put(applicationPermissionPath + PATH_CONSTANT,
+                    mockAppRootNode);
+        }
     }
 
     private void changeUserToAdmin() throws org.wso2.carbon.user.core.UserStoreException {
@@ -387,17 +457,17 @@ public class ApplicationMgtUtilTest extends PowerMockTestCase {
         when(mockRealmConfiguration.getAdminUserName()).thenReturn("admin");
     }
 
-    private void loadPermissions() throws RegistryException, UserStoreException {
+    private void loadPermissions(MockedStatic<PrivilegedCarbonContext> privilegedCarbonContext,
+                                 MockedStatic<CarbonContext> carbonContext)
+            throws RegistryException, UserStoreException {
 
-        mockTenantRegistry();
+        mockTenantRegistry(privilegedCarbonContext, carbonContext);
         when(mockTenantRegistry.resourceExists(anyString())).thenReturn(TRUE);
-
         changeUserToAdmin();
-        Collection appCollection = mock(Collection.class);
-        Collection childCollection = mock(Collection.class);
+
         when(mockTenantRegistry.newCollection()).thenReturn(mockAppRootNode);
-        when(mockTenantRegistry.get(applicationNode)).thenReturn(appCollection);
-        when(appCollection.getChildren()).thenReturn(new String[]{PATH_CONSTANT + applicationPermissionPath});
+        when(mockTenantRegistry.get(applicationNode)).thenReturn(mockAppCollection);
+        when(mockAppCollection.getChildren()).thenReturn(new String[]{PATH_CONSTANT + applicationPermissionPath});
         when(mockTenantRegistry.get(PATH_CONSTANT + applicationPermissionPath)).thenReturn(childCollection);
         when(childCollection.getChildren()).thenReturn(new String[]{});
     }
@@ -405,20 +475,42 @@ public class ApplicationMgtUtilTest extends PowerMockTestCase {
     @Test
     public void testDeletePermissions() throws RegistryException, IdentityApplicationManagementException {
 
-        mockTenantRegistry();
-        when(mockTenantRegistry.resourceExists(anyString())).thenReturn(TRUE);
-        ApplicationMgtUtil.deletePermissions(APPLICATION_NAME);
-        verify(mockTenantRegistry).delete(anyString());
+        try (MockedStatic<PrivilegedCarbonContext> privilegedCarbonContext = mockStatic(PrivilegedCarbonContext.class);
+             MockedStatic<CarbonContext> carbonContext = mockStatic(CarbonContext.class);
+             MockedStatic<ApplicationManagementServiceComponentHolder> applicationManagementServiceComponentHolder =
+                     mockStatic(ApplicationManagementServiceComponentHolder.class)) {
+            mockTenantRegistry(privilegedCarbonContext, carbonContext);
+            applicationManagementServiceComponentHolder.when(
+                    ApplicationManagementServiceComponentHolder::getInstance).thenReturn(
+                    mockApplicationManagementServiceComponentHolder);
+            when(mockApplicationManagementServiceComponentHolder.getApplicationPermissionProvider()).thenReturn(
+                    registryBasedApplicationPermissionProvider);
+            when(mockTenantRegistry.resourceExists(anyString())).thenReturn(TRUE);
+            ApplicationMgtUtil.deletePermissions(APPLICATION_NAME);
+            verify(mockTenantRegistry).delete(anyString());
+        }
     }
 
     @Test
     public void testDeletePermissionsRegistryException() throws RegistryException {
 
-        mockTenantRegistry();
-        doThrow(new RegistryException("")).when(mockTenantRegistry).resourceExists(anyString());
+        try (MockedStatic<PrivilegedCarbonContext> privilegedCarbonContext = mockStatic(PrivilegedCarbonContext.class);
+             MockedStatic<CarbonContext> carbonContext = mockStatic(CarbonContext.class);
+             MockedStatic<ApplicationManagementServiceComponentHolder>
+                     applicationManagementServiceComponentHolder =
+                     mockStatic(ApplicationManagementServiceComponentHolder.class);) {
+            applicationManagementServiceComponentHolder.when(
+                    ApplicationManagementServiceComponentHolder::getInstance).thenReturn(
+                    mockApplicationManagementServiceComponentHolder);
+            when(mockApplicationManagementServiceComponentHolder.getApplicationPermissionProvider()).thenReturn(
+                    registryBasedApplicationPermissionProvider);
 
-        assertThrows(IdentityApplicationManagementException.class, () -> ApplicationMgtUtil.deletePermissions
-                (APPLICATION_NAME));
+            mockTenantRegistry(privilegedCarbonContext, carbonContext);
+            doThrow(new RegistryException("")).when(mockTenantRegistry).resourceExists(anyString());
+
+            assertThrows(IdentityApplicationManagementException.class, () -> ApplicationMgtUtil.deletePermissions
+                    (APPLICATION_NAME));
+        }
     }
 
     @Test
@@ -453,14 +545,41 @@ public class ApplicationMgtUtilTest extends PowerMockTestCase {
             serviceProvider.setOwner(user);
         }
 
-        mockUserStoreManager();
-        when(mockUserStoreManager.isExistingUser(anyString())).thenReturn(FALSE);
-        when(mockUserRealm.getRealmConfiguration()).thenReturn(mockRealmConfiguration);
-        when(mockRealmConfiguration.getAdminUserName()).thenReturn("admin");
-        when(mockRealmConfiguration.getUserStoreProperty(anyString())).thenReturn("property");
-        when(mockCarbonContext.getTenantDomain()).thenReturn(TENANT_DOMAIN);
+        try (MockedStatic<PrivilegedCarbonContext> privilegedCarbonContext = mockStatic(PrivilegedCarbonContext.class);
+             MockedStatic<CarbonContext> carbonContext = mockStatic(CarbonContext.class);
+             MockedStatic<IdentityTenantUtil> identityTenantUtil = mockStatic(IdentityTenantUtil.class);
+             MockedStatic<ApplicationManagementServiceComponentHolder>
+                     applicationManagementServiceComponentHolder =
+                     mockStatic(ApplicationManagementServiceComponentHolder.class)) {
 
-        assertEquals(ApplicationMgtUtil.isValidApplicationOwner(serviceProvider), expected);
+            mockUserStoreManager(privilegedCarbonContext, carbonContext);
+            when(mockUserStoreManager.isExistingUser(anyString())).thenReturn(FALSE);
+            when(mockUserRealm.getRealmConfiguration()).thenReturn(mockRealmConfiguration);
+            when(mockRealmConfiguration.getAdminUserName()).thenReturn("admin");
+            when(mockRealmConfiguration.getUserStoreProperty(anyString())).thenReturn("property");
+            when(mockCarbonContext.getTenantDomain()).thenReturn(TENANT_DOMAIN);
+
+            identityTenantUtil.when(() -> IdentityTenantUtil.getTenantId(anyString())).thenReturn(-1234);
+
+            mockRealmService = mock(RealmService.class);
+            mockUserRealmFromRealmService = mock(UserRealm.class);
+            mockAbstractUserStoreManager = mock(AbstractUserStoreManager.class);
+
+            applicationManagementServiceComponentHolder.when(ApplicationManagementServiceComponentHolder::getInstance)
+                    .thenReturn(mockApplicationManagementServiceComponentHolder);
+            when(mockApplicationManagementServiceComponentHolder.getRealmService()).thenReturn(mockRealmService);
+            when(mockRealmService.getTenantUserRealm(anyInt())).thenReturn(mockUserRealmFromRealmService);
+            when(mockUserRealmFromRealmService.getUserStoreManager()).thenReturn(mockAbstractUserStoreManager);
+            when(mockAbstractUserStoreManager.isExistingUser(anyString())).thenReturn(TRUE);
+
+            org.wso2.carbon.user.core.common.User user = new org.wso2.carbon.user.core.common.User();
+            user.setUsername(UserCoreUtil.removeDomainFromName(USERNAME));
+            user.setTenantDomain(tenantDomain);
+            user.setUserStoreDomain(UserCoreUtil.extractDomainFromName(USERNAME));
+            when(mockAbstractUserStoreManager.getUser(any(), anyString())).thenReturn(user);
+
+            assertEquals(ApplicationMgtUtil.isValidApplicationOwner(serviceProvider), expected);
+        }
     }
 
     @DataProvider(name = "getItemsPerPageDataProvider")
@@ -476,49 +595,48 @@ public class ApplicationMgtUtilTest extends PowerMockTestCase {
     @Test(dataProvider = "getItemsPerPageDataProvider")
     public void testGetItemsPerPage(String itemsPerPagePropertyValue, int itemsPerPage) {
 
-        mockStatic(ServerConfiguration.class);
-        ServerConfiguration serverConfiguration = mock(ServerConfiguration.class);
-        when(ServerConfiguration.getInstance()).thenReturn(serverConfiguration);
-        when(serverConfiguration.getFirstProperty(anyString())).thenReturn(itemsPerPagePropertyValue);
+        try (MockedStatic<ServerConfiguration> serverConfiguration = mockStatic(ServerConfiguration.class)) {
+            ServerConfiguration mockServerConfiguration = mock(ServerConfiguration.class);
+            serverConfiguration.when(ServerConfiguration::getInstance).thenReturn(mockServerConfiguration);
+            when(mockServerConfiguration.getFirstProperty(anyString())).thenReturn(itemsPerPagePropertyValue);
 
-        assertEquals(ApplicationMgtUtil.getItemsPerPage(), itemsPerPage);
+            assertEquals(ApplicationMgtUtil.getItemsPerPage(), itemsPerPage);
+        }
     }
 
-    private void mockTenantRegistry() {
+    private void mockTenantRegistry(MockedStatic<PrivilegedCarbonContext> privilegedCarbonContext,
+                                    MockedStatic<CarbonContext> carbonContext) {
 
-        mockCarbonContext();
+        mockCarbonContext(privilegedCarbonContext, carbonContext);
         mockTenantRegistry = mock(Registry.class);
         when(mockCarbonContext.getRegistry(RegistryType.USER_GOVERNANCE)).thenReturn(mockTenantRegistry);
     }
 
-    private void mockUserStoreManager() throws UserStoreException {
+    private void mockUserStoreManager(MockedStatic<PrivilegedCarbonContext> privilegedCarbonContext,
+                                      MockedStatic<CarbonContext> carbonContext) throws UserStoreException {
 
-        mockCarbonContext();
+        mockCarbonContext(privilegedCarbonContext, carbonContext);
         mockUserRealm = mock(UserRealm.class);
         mockUserStoreManager = mock(UserStoreManager.class);
         when(mockCarbonContext.getUserRealm()).thenReturn(mockUserRealm);
         when(mockUserRealm.getUserStoreManager()).thenReturn(mockUserStoreManager);
     }
 
-    private void mockCarbonContext() {
+    private void mockCarbonContext(MockedStatic<PrivilegedCarbonContext> privilegedCarbonContext,
+                                   MockedStatic<CarbonContext> carbonContext) {
 
-        initPrivilegedCarbonContext();
-        mockStatic(CarbonContext.class);
+        initPrivilegedCarbonContext(privilegedCarbonContext);
         mockCarbonContext = mock(CarbonContext.class);
-        when(CarbonContext.getThreadLocalCarbonContext()).thenReturn(mockCarbonContext);
+        carbonContext.when(CarbonContext::getThreadLocalCarbonContext).thenReturn(mockCarbonContext);
     }
 
-    private void initPrivilegedCarbonContext() {
+    private void initPrivilegedCarbonContext(MockedStatic<PrivilegedCarbonContext> privilegedCarbonContext) {
 
-        String carbonHome = Paths.get(System.getProperty("user.dir"), "target", "test-classes").toString();
-        System.setProperty(CarbonBaseConstants.CARBON_HOME, carbonHome);
-        System.setProperty(CarbonBaseConstants.CARBON_CONFIG_DIR_PATH, Paths.get(carbonHome, "conf").toString());
-
-        mockStatic(PrivilegedCarbonContext.class);
-        PrivilegedCarbonContext privilegedCarbonContext = Mockito.mock(PrivilegedCarbonContext.class);
-        when(PrivilegedCarbonContext.getThreadLocalCarbonContext()).thenReturn(privilegedCarbonContext);
-        when(privilegedCarbonContext.getTenantDomain()).thenReturn(SUPER_TENANT_DOMAIN_NAME);
-        when(privilegedCarbonContext.getTenantId()).thenReturn(SUPER_TENANT_ID);
-        when(privilegedCarbonContext.getUsername()).thenReturn("admin");
+        PrivilegedCarbonContext mockPrivilegedCarbonContext = mock(PrivilegedCarbonContext.class);
+        privilegedCarbonContext.when(
+                PrivilegedCarbonContext::getThreadLocalCarbonContext).thenReturn(mockPrivilegedCarbonContext);
+        when(mockPrivilegedCarbonContext.getTenantDomain()).thenReturn(SUPER_TENANT_DOMAIN_NAME);
+        when(mockPrivilegedCarbonContext.getTenantId()).thenReturn(SUPER_TENANT_ID);
+        when(mockPrivilegedCarbonContext.getUsername()).thenReturn("admin");
     }
 }

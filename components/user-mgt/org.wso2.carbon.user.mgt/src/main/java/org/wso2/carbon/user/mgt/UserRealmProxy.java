@@ -78,7 +78,8 @@ public class UserRealmProxy {
     private static final String APPLICATIONS_PATH = RegistryConstants.PATH_SEPARATOR
             + CarbonConstants.UI_PERMISSION_NAME + RegistryConstants.PATH_SEPARATOR
             + "applications";
-    private static final String DISAPLAY_NAME_CLAIM = "http://wso2.org/claims/displayName";
+    private static final String DISPLAY_NAME_CLAIM = "http://wso2.org/claims/displayName";
+    private static final String DISPLAY_NAME_ATTRIBUTE = "DisplayNameAttribute";
 
     public static final String FALSE = "false";
     public static final String PERMISSION = "/permission";
@@ -120,25 +121,42 @@ public class UserRealmProxy {
                 flaggedNames = new FlaggedName[usersWithClaim.length + 1];
 
                 Arrays.sort(usersWithClaim);
+                // Check whether to use the display name claim when filtering users.
+                String showDisplayName = IdentityUtil.getProperty(IdentityConstants.SHOW_DISPLAY_NAME);
+                boolean isShowDisplayNameEnabled = Boolean.parseBoolean(showDisplayName);
+
+                // Check for display name attribute mappings and retrieve the relevant claim uri.
+                String displayNameAttribute = realm.getRealmConfiguration()
+                        .getUserStoreProperty(DISPLAY_NAME_ATTRIBUTE);
+                String displayNameClaimURI = DISPLAY_NAME_CLAIM;
+                if (StringUtils.isNotBlank(displayNameAttribute)) {
+                    ClaimMapping[] claimMappings = realm.getClaimManager().getAllClaimMappings();
+                    if (claimMappings != null) {
+                        for (ClaimMapping claimMapping: claimMappings) {
+                            if (displayNameAttribute.equals(claimMapping.getMappedAttribute())) {
+                                displayNameClaimURI = claimMapping.getClaim().getClaimUri();
+                                break;
+                            }
+                        }
+                    }
+                }
+
                 for (String user : usersWithClaim) {
                     flaggedNames[i] = new FlaggedName();
                     flaggedNames[i].setItemName(user);
-                    //retrieving the displayName
-                    // Check whether to use the display name claim when filtering users.
-                    String showDisplayName = IdentityUtil.getProperty(IdentityConstants.SHOW_DISPLAY_NAME);
-                    boolean isShowDisplayNameEnabled = Boolean.parseBoolean(showDisplayName);
-                    if (isShowDisplayNameEnabled) {
-                        String displayName = realm.getUserStoreManager().getUserClaimValue(user, DISAPLAY_NAME_CLAIM,
+                    // Retrieving the displayName.
+                    String displayName = null;
+                    if (StringUtils.isNotBlank(displayNameAttribute) || isShowDisplayNameEnabled) {
+                        displayName = realm.getUserStoreManager().getUserClaimValue(user, displayNameClaimURI,
                                 null);
-                        if (StringUtils.isNotBlank(displayName)) {
-                            int index = user.indexOf(UserCoreConstants.DOMAIN_SEPARATOR);
-                            if (index > 0) {
-                                flaggedNames[i].setItemDisplayName(user.substring(0, index + 1) + displayName);
-                            } else {
-                                flaggedNames[i].setItemDisplayName(displayName);
-                            }
+                    }
+
+                    if (StringUtils.isNotBlank(displayName)) {
+                        int index = user.indexOf(UserCoreConstants.DOMAIN_SEPARATOR);
+                        if (index > 0) {
+                            flaggedNames[i].setItemDisplayName(user.substring(0, index + 1) + displayName);
                         } else {
-                            flaggedNames[i].setItemDisplayName(user);
+                            flaggedNames[i].setItemDisplayName(displayName);
                         }
                     } else {
                         flaggedNames[i].setItemDisplayName(user);
@@ -423,50 +441,52 @@ public class UserRealmProxy {
             List<FlaggedName> flaggedNames = new ArrayList<FlaggedName>();
             Map<String, Integer> userCount = new HashMap<String, Integer>();
 
-            for (String externalRole : externalRoles) {
-                FlaggedName fName = new FlaggedName();
-                mapEntityName(externalRole, fName, userStoreMan);
-                fName.setRoleType(UserMgtConstants.EXTERNAL_ROLE);
+            if (externalRoles != null) {
+                for (String externalRole : externalRoles) {
+                    FlaggedName fName = new FlaggedName();
+                    mapEntityName(externalRole, fName, userStoreMan);
+                    fName.setRoleType(UserMgtConstants.EXTERNAL_ROLE);
 
-                // setting read only or writable
-                int index = externalRole != null ? externalRole.indexOf(CarbonConstants.DOMAIN_SEPARATOR) : -1;
-                boolean domainProvided = index > 0;
-                String domain = domainProvided ? externalRole.substring(0, index) : null;
-                UserStoreManager secManager = realm.getUserStoreManager().getSecondaryUserStoreManager(domain);
+                    // setting read only or writable
+                    int index = externalRole != null ? externalRole.indexOf(CarbonConstants.DOMAIN_SEPARATOR) : -1;
+                    boolean domainProvided = index > 0;
+                    String domain = domainProvided ? externalRole.substring(0, index) : null;
+                    UserStoreManager secManager = realm.getUserStoreManager().getSecondaryUserStoreManager(domain);
 
-                if (domain != null && !UserCoreConstants.INTERNAL_DOMAIN.equalsIgnoreCase(domain) &&
-                        !UserMgtConstants.APPLICATION_DOMAIN.equalsIgnoreCase(domain)) {
-                    if (secManager != null && (secManager.isReadOnly() ||
-                            (FALSE.equals(secManager.getRealmConfiguration().
-                                    getUserStoreProperty(UserCoreConstants.RealmConfig.WRITE_GROUPS_ENABLED))))) {
-                        fName.setEditable(false);
+                    if (domain != null && !UserCoreConstants.INTERNAL_DOMAIN.equalsIgnoreCase(domain) &&
+                            !UserMgtConstants.APPLICATION_DOMAIN.equalsIgnoreCase(domain)) {
+                        if (secManager != null && (secManager.isReadOnly() ||
+                                (FALSE.equals(secManager.getRealmConfiguration().
+                                        getUserStoreProperty(UserCoreConstants.RealmConfig.WRITE_GROUPS_ENABLED))))) {
+                            fName.setEditable(false);
+                        } else {
+                            fName.setEditable(true);
+                        }
                     } else {
-                        fName.setEditable(true);
+                        if (realm.getUserStoreManager().isReadOnly() ||
+                                (FALSE.equals(realm.getUserStoreManager().getRealmConfiguration().
+                                        getUserStoreProperty(UserCoreConstants.RealmConfig.WRITE_GROUPS_ENABLED)))) {
+                            fName.setEditable(false);
+                        } else {
+                            fName.setEditable(true);
+                        }
                     }
-                } else {
-                    if (realm.getUserStoreManager().isReadOnly() ||
-                            (FALSE.equals(realm.getUserStoreManager().getRealmConfiguration().
-                                    getUserStoreProperty(UserCoreConstants.RealmConfig.WRITE_GROUPS_ENABLED)))) {
-                        fName.setEditable(false);
+                    if (domain != null) {
+                        if (userCount.containsKey(domain)) {
+                            userCount.put(domain, userCount.get(domain) + 1);
+                        } else {
+                            userCount.put(domain, 1);
+                        }
                     } else {
-                        fName.setEditable(true);
+                        if (userCount.containsKey(UserCoreConstants.PRIMARY_DEFAULT_DOMAIN_NAME)) {
+                            userCount.put(UserCoreConstants.PRIMARY_DEFAULT_DOMAIN_NAME,
+                                    userCount.get(UserCoreConstants.PRIMARY_DEFAULT_DOMAIN_NAME) + 1);
+                        } else {
+                            userCount.put(UserCoreConstants.PRIMARY_DEFAULT_DOMAIN_NAME, 1);
+                        }
                     }
+                    flaggedNames.add(fName);
                 }
-                if (domain != null) {
-                    if (userCount.containsKey(domain)) {
-                        userCount.put(domain, userCount.get(domain) + 1);
-                    } else {
-                        userCount.put(domain, 1);
-                    }
-                } else {
-                    if (userCount.containsKey(UserCoreConstants.PRIMARY_DEFAULT_DOMAIN_NAME)) {
-                        userCount.put(UserCoreConstants.PRIMARY_DEFAULT_DOMAIN_NAME,
-                                userCount.get(UserCoreConstants.PRIMARY_DEFAULT_DOMAIN_NAME) + 1);
-                    } else {
-                        userCount.put(UserCoreConstants.PRIMARY_DEFAULT_DOMAIN_NAME, 1);
-                    }
-                }
-                flaggedNames.add(fName);
             }
 
             String filteredDomain = null;
@@ -475,28 +495,26 @@ public class UserRealmProxy {
                 filteredDomain = filter.split(CarbonConstants.DOMAIN_SEPARATOR)[0];
             }
 
-            if (filter.startsWith(UserCoreConstants.INTERNAL_DOMAIN + CarbonConstants.DOMAIN_SEPARATOR)) {
-                filter = filter.substring(filter.indexOf(CarbonConstants.DOMAIN_SEPARATOR) + 1);
-            }
-
             String[] hybridRoles = ((AbstractUserStoreManager) userStoreMan).getHybridRoles(filter);
 
             // Filter the internal system roles created to maintain the backward compatibility.
             hybridRoles = filterInternalSystemRoles(hybridRoles);
 
-            for (String hybridRole : hybridRoles) {
-                if (filteredDomain != null && !hybridRole.startsWith(filteredDomain)) {
-                    continue;
+            if (hybridRoles != null) {
+                for (String hybridRole : hybridRoles) {
+                    if (filteredDomain != null && !hybridRole.startsWith(filteredDomain)) {
+                        continue;
+                    }
+                    FlaggedName fName = new FlaggedName();
+                    fName.setItemName(hybridRole);
+                    if (hybridRole.toLowerCase().startsWith(UserCoreConstants.INTERNAL_DOMAIN.toLowerCase())) {
+                        fName.setRoleType(UserMgtConstants.INTERNAL_ROLE);
+                    } else {
+                        fName.setRoleType(UserMgtConstants.APPLICATION_DOMAIN);
+                    }
+                    fName.setEditable(true);
+                    flaggedNames.add(fName);
                 }
-                FlaggedName fName = new FlaggedName();
-                fName.setItemName(hybridRole);
-                if (hybridRole.toLowerCase().startsWith(UserCoreConstants.INTERNAL_DOMAIN.toLowerCase())) {
-                    fName.setRoleType(UserMgtConstants.INTERNAL_ROLE);
-                } else {
-                    fName.setRoleType(UserMgtConstants.APPLICATION_DOMAIN);
-                }
-                fName.setEditable(true);
-                flaggedNames.add(fName);
             }
             String exceededDomains = "";
             boolean isPrimaryExceeding = false;

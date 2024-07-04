@@ -21,6 +21,7 @@ package org.wso2.carbon.identity.application.common.model;
 import org.apache.axiom.om.OMElement;
 import org.apache.commons.lang.StringUtils;
 import org.wso2.carbon.base.MultitenantConstants;
+import org.wso2.carbon.identity.central.log.mgt.utils.LoggerUtils;
 import org.wso2.carbon.identity.core.util.IdentityTenantUtil;
 import org.wso2.carbon.identity.core.util.IdentityUtil;
 import org.wso2.carbon.user.core.UserCoreConstants;
@@ -42,6 +43,17 @@ public class User implements Serializable {
     protected String userStoreDomain;
     protected String userName;
     protected boolean isUsernameCaseSensitive = true;
+
+    public User() {
+
+    }
+
+    public User(org.wso2.carbon.user.core.common.User commonUser) {
+
+        this.setUserName(commonUser.getUsername());
+        this.setUserStoreDomain(commonUser.getUserStoreDomain());
+        this.setTenantDomain(commonUser.getTenantDomain());
+    }
 
     /**
      * Returns a User instance populated from the given OMElement
@@ -228,9 +240,31 @@ public class User implements Serializable {
         return username;
     }
 
+    /**
+     * Returns the loggable username of the {@link User} object without the userStoreDomain.
+     *
+     * @return username without the userStoreDomain
+     * @deprecated use {@link #getLoggableMaskedUserId()}
+     */
+    @Deprecated
     public String getLoggableUserId() {
 
         return toFullQualifiedUsername();
+    }
+
+    /**
+     * Returns the loggable username of the {@link User} object without the userStoreDomain. Masks the username if
+     * masking is enabled.
+     *
+     * @return username without the userStoreDomain.
+     */
+    public String getLoggableMaskedUserId() {
+
+        String loggableUserId = toFullQualifiedUsername();
+        if (LoggerUtils.isLogMaskingEnable) {
+            loggableUserId = LoggerUtils.getMaskedContent(loggableUserId);
+        }
+        return loggableUserId;
     }
 
     /**

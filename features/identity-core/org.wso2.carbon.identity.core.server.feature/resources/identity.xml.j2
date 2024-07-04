@@ -1,19 +1,21 @@
 <?xml version="1.0" encoding="ISO-8859-1"?>
 
 <!--
-~ Copyright (c) 2019, WSO2 Inc. (http://www.wso2.org) All Rights Reserved.
+~ Copyright (c) 2019-2024, WSO2 LLC. (http://www.wso2.com).
 ~
-~ Licensed under the Apache License, Version 2.0 (the "License");
-~ you may not use this file except in compliance with the License.
+~ WSO2 LLC. licenses this file to you under the Apache License,
+~ Version 2.0 (the "License"); you may not use this file except
+~ in compliance with the License.
 ~ You may obtain a copy of the License at
 ~
 ~ http://www.apache.org/licenses/LICENSE-2.0
 ~
-~ Unless required by applicable law or agreed to in writing, software
-~ distributed under the License is distributed on an "AS IS" BASIS,
-~ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-~ See the License for the specific language governing permissions and
-~ limitations under the License.
+~ Unless required by applicable law or agreed to in writing,
+~ software distributed under the License is distributed on an
+~ "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+~ KIND, either express or implied.  See the License for the
+~ specific language governing permissions and limitations
+~ under the License.
  -->
 
 <Server xmlns="http://wso2.org/projects/carbon/carbon.xml" xmlns:svns="http://org.wso2.securevault/configuration">
@@ -57,11 +59,33 @@
                 and would be deleted during cleanup task -->
                 <CleanUpTimeout>{{session_data.cleanup.expire_pre_session_data_after}}</CleanUpTimeout>
             </TempDataCleanup>
+            <SessionAndTempDataSeparation>
+                <Enable>{{session_data.session_data_persist.session_and_temp_data_separation_enabled.enable}}</Enable>
+            </SessionAndTempDataSeparation>
             <UserSessionMapping>
                 <Enable>{{session_data.persistence.enable_user_session_mapping}}</Enable>
             </UserSessionMapping>
         </SessionDataPersist>
+        <PushedAuthReqCleanUp>
+            <Enable>{{par.cleanup.enable_expired_requests_cleanup}}</Enable>
+            <CleanUpPeriod>{{par.cleanup.clean_expired_requests_every}}</CleanUpPeriod>
+        </PushedAuthReqCleanUp>
     </JDBCPersistenceManager>
+
+    <!--
+    This section provide the ability to configure the storage type for the features that used to store data in the
+    registry in IS 7.0.0 or earlier.
+
+    Applicable values:
+        - "database" - Data will be store in tables in the specified tables in the identity database.
+        - "hybrid"   - Any new changes stored in "database" and any existing data read from "registry" allowing data to
+                        on-demand migrate.
+        Default value is "database".
+    -->
+    <DataStorageType>
+        <NotificationTemplates>{{data_storage_type.notification_templates}}</NotificationTemplates>
+        <KeyStores>{{data_storage_type.keystores}}</KeyStores>
+    </DataStorageType>
 
     <!-- Time configurations are in minutes -->
     <TimeConfig>
@@ -120,7 +144,16 @@
         {% if service_provider.fetch_chunk_size is defined %}
         <FetchChunkSize>{{service_provider.fetch_chunk_size}}</FetchChunkSize>
         {% endif %}
+        {% if service_provider.use_username_as_sub_claim is defined %}
+        <UseUsernameAsSubClaim>{{service_provider.use_username_as_sub_claim}}</UseUsernameAsSubClaim>
+        {% endif %}
     </ServiceProviders>
+
+    <Connectors>
+        <ChallengeQuestions>
+            <Enabled>{{connector.challenge_questions.enable}}</Enabled>
+        </ChallengeQuestions>
+    </Connectors>
 
     <OpenID>
         <!--
@@ -178,6 +211,22 @@
         <WorkingDirectory>{{remote_fetch.working_directory}}</WorkingDirectory>
     </RemoteFetch>
 
+    <!--
+    Configuration to select default validation.
+    Currently we are supporting two username validation "alphaNumeric" and "email".
+    This should be secondary configuration along with input validation event listener.
+    -->
+    <InputValidation>
+        <DefaultUserNameValidator>{{input_validation.default_validator}}</DefaultUserNameValidator>
+    </InputValidation>
+
+    <ClientAttestation>
+        <!-- This tag defines the allowed window between current time and attestation object creation time. -->
+        <AllowedWindowMillis>{{client_attestation.allowed_window}}</AllowedWindowMillis>
+        <AppleAttestationRootCertificatePath>{{client_attestation.apple_attestation_root_certificate_path}}</AppleAttestationRootCertificatePath>
+        <AppleAttestationRevocationCheckEnabled>{{client_attestation.apple_attestation_revocation_check_enabled}}</AppleAttestationRevocationCheckEnabled>
+    </ClientAttestation>
+
     <OAuth>
         <!-- Token cleanup feature config to clean IDN_OAUTH2_ACCESS_TOKEN table-->
         <TokenCleanup>
@@ -221,6 +270,9 @@
         <UseSPTenantDomain>{{oauth.access_token.generate_with_sp_tenant_domain}}</UseSPTenantDomain>
         {% endif %}
 
+        <!-- This configuration is used to enable or disable generation of random numbers using HMAC-SHA256 algorithm.-->
+        <EnableSHA256Params>{{oauth.enable_sha256}}</EnableSHA256Params>
+
         <!--
             Default values for OAuth1RequestTokenUrl, OAuth1AccessTokenUrl, OAuth1AuthorizeUrl
             OAuth2AuthzEPUrl, OAuth2TokenEPUrl and OAuth2UserInfoEPUrl are built in following format
@@ -231,6 +283,7 @@
         <OAuth1AuthorizeUrl>{{oauth.endpoints.oauth1_authorize_url}}</OAuth1AuthorizeUrl>
         <OAuth1AccessTokenUrl>{{oauth.endpoints.oauth1_access_token_url}}</OAuth1AccessTokenUrl>
         <OAuth2AuthzEPUrl>{{oauth.endpoints.oauth2_authz_url}}</OAuth2AuthzEPUrl>
+        <OAuth2ParEPUrl>{{oauth.endpoints.oauth2_par_url}}</OAuth2ParEPUrl>
         <OAuth2TokenEPUrl>{{oauth.endpoints.oauth2_token_url}}</OAuth2TokenEPUrl>
         <OAuth2RevokeEPUrl>{{oauth.endpoints.oauth2_revoke_url}}</OAuth2RevokeEPUrl>
         <OAuth2IntrospectEPUrl>{{oauth.endpoints.oauth2_introspect_url}}</OAuth2IntrospectEPUrl>
@@ -250,8 +303,23 @@
         <OAuth2JWKSPage>{{oauth.endpoints.oauth2_jwks_url}}</OAuth2JWKSPage>
         <OIDCDiscoveryEPUrl>{{oauth.endpoints.oidc_discovery_url}}</OIDCDiscoveryEPUrl>
         <OAuth2DeviceAuthzEPUrl>{{oauth.endpoints.oauth2_device_authz_url}}</OAuth2DeviceAuthzEPUrl>
+
+        <MutualTLSAliases>
+            <Enabled>{{oauth.mtls_aliases.enabled}}</Enabled>
+            <Hostname>{{oauth.mtls_aliases.hostname}}</Hostname>
+        </MutualTLSAliases>
+
+        <EnableSHA256OAuth2JWKThumbprint>{{oauth.jwk_thumbprint_enable_sha256}}</EnableSHA256OAuth2JWKThumbprint>
+
         <!-- If enabled, resident Idp entity id will be honoured as the issuer location in OpenId Connect Discovery -->
         <UseEntityIdAsIssuerInOidcDiscovery>{{oauth.use_entityid_as_issuer_in_oidc_discovery}}</UseEntityIdAsIssuerInOidcDiscovery>
+
+        <!-- If enabled, OIDC claims will be skipped when requesting token for client credential grant type
+             currently used by JWT token issuer for issuing access token-->
+        <SkipOIDCClaimsForClientCredentialGrant>{{oauth.grant_type.client_credentials.skip_oidc_claims}}</SkipOIDCClaimsForClientCredentialGrant>
+
+        <!-- If enabled, hostname will be used to build the issuer instead of entity ID -->
+        <BuildIssuerWithHostname>{{oauth.build_issuer_with_hostname}}</BuildIssuerWithHostname>
 
         <!-- Default validity period for Authorization Code in seconds -->
         <AuthorizationCodeDefaultValidityPeriod>{{oauth.token_validation.authorization_code_validity}}</AuthorizationCodeDefaultValidityPeriod>
@@ -265,6 +333,8 @@
         <TimestampSkew>{{oauth.timestamp_skew}}</TimestampSkew>
         <!-- Enable renewal of refresh token for refresh_token grant -->
         <RenewRefreshTokenForRefreshGrant>{{oauth.token_renewal.renew_refresh_token}}</RenewRefreshTokenForRefreshGrant>
+        <!-- Enable password grant to go through the framework -->
+        <EnablePasswordFlowEnhancements>{{oauth.enable_password_grant_enhancements}}</EnablePasswordFlowEnhancements>
         <!-- Enable Extend renews refresh token expiry time -->
         <ExtendRenewedRefreshTokenExpiryTime>{{oauth.token_renewal.extend_refresh_token_expiry_time_on_renewal}}</ExtendRenewedRefreshTokenExpiryTime>
         <!-- Process the token before storing it in database, e.g. encrypting -->
@@ -283,6 +353,62 @@
         <EnableClientSecretHash>{{oauth.hash_tokens_and_secrets}}</EnableClientSecretHash>
         <!-- If the user is a federated, user will not be able to access claims from local userstore even if the username matches -->
         <MapFederatedUsersToLocal>{{oauth.map_federated_users_to_local}}</MapFederatedUsersToLocal>
+
+        <!-- Supported Response Modes -->
+        <SupportedResponseModes>
+            <SupportedResponseMode>
+                <ResponseModeName>query</ResponseModeName>
+                <ResponseModeProviderClass>org.wso2.carbon.identity.oauth2.responsemode.provider.impl.QueryResponseModeProvider</ResponseModeProviderClass>
+            </SupportedResponseMode>
+            <SupportedResponseMode>
+                <ResponseModeName>fragment</ResponseModeName>
+                <ResponseModeProviderClass>org.wso2.carbon.identity.oauth2.responsemode.provider.impl.FragmentResponseModeProvider</ResponseModeProviderClass>
+            </SupportedResponseMode>
+            <SupportedResponseMode>
+                <ResponseModeName>form_post</ResponseModeName>
+                <ResponseModeProviderClass>org.wso2.carbon.identity.oauth2.responsemode.provider.impl.FormPostResponseModeProvider</ResponseModeProviderClass>
+            </SupportedResponseMode>
+            {% if oauth.jarm.enable is sameas true %}
+                {% if oauth.jarm.jwt.enable is sameas true %}
+                <SupportedResponseMode>
+                    <ResponseModeName>jwt</ResponseModeName>
+                    <ResponseModeProviderClass>{{oauth.jarm.response_mode.jwt.class}}</ResponseModeProviderClass>
+                </SupportedResponseMode>
+                {% endif %}
+                {% if oauth.jarm.query_jwt.enable is sameas true %}
+                <SupportedResponseMode>
+                    <ResponseModeName>query.jwt</ResponseModeName>
+                    <ResponseModeProviderClass>{{oauth.jarm.response_mode.query_jwt.class}}</ResponseModeProviderClass>
+                </SupportedResponseMode>
+                {% endif %}
+                {% if oauth.jarm.fragment_jwt.enable is sameas true %}
+                <SupportedResponseMode>
+                    <ResponseModeName>fragment.jwt</ResponseModeName>
+                    <ResponseModeProviderClass>{{oauth.jarm.response_mode.fragment_jwt.class}}</ResponseModeProviderClass>
+                </SupportedResponseMode>
+                {% endif %}
+                {% if oauth.jarm.form_post_jwt.enable is sameas true %}
+                <SupportedResponseMode>
+                    <ResponseModeName>form_post.jwt</ResponseModeName>
+                    <ResponseModeProviderClass>{{oauth.jarm.response_mode.form_post_jwt.class}}</ResponseModeProviderClass>
+                </SupportedResponseMode>
+                {% endif %}
+            {% endif %}
+            {% for response_mode in oauth.response_mode %}
+            <SupportedResponseMode>
+                <ResponseModeName>{{response_mode.name}}</ResponseModeName>
+                <ResponseModeProviderClass>{{response_mode.class}}</ResponseModeProviderClass>
+            </SupportedResponseMode>
+            {% endfor %}
+        </SupportedResponseModes>
+
+        <DefaultResponseModeProviderClass>org.wso2.carbon.identity.oauth2.responsemode.provider.impl.DefaultResponseModeProvider</DefaultResponseModeProviderClass>
+
+        {% if oauth.jarm.enable is sameas true %}
+        <!-- Validity period for jarm response jwt in seconds -->
+        <JARMResponseJwtValidityPeriodInSeconds>{{oauth.jarm.jarm_response_jwt_validity}}</JARMResponseJwtValidityPeriodInSeconds>
+        {% endif %}
+
         <!-- Supported Response Types -->
         <SupportedResponseTypes>
             {% if oauth.response_type.token.enable is sameas true %}
@@ -358,6 +484,7 @@
                 {% if oauth.grant_type.authorization_code.grant_validator is defined %}
                 <GrantTypeValidatorImplClass>{{oauth.grant_type.authorization_code.grant_validator}}</GrantTypeValidatorImplClass>
                 {% endif %}
+                <PublicClientAllowed>{{oauth.grant_type.authorization_code.allow_public_client}}</PublicClientAllowed>
             </SupportedGrantType>
             {% endif %}
             {% if oauth.grant_type.password.enable is sameas true %}
@@ -367,6 +494,7 @@
                 {% if oauth.grant_type.password.grant_validator is defined %}
                 <GrantTypeValidatorImplClass>{{oauth.grant_type.password.grant_validator}}</GrantTypeValidatorImplClass>
                 {% endif %}
+                <PublicClientAllowed>{{oauth.grant_type.password.allow_public_client}}</PublicClientAllowed>
             </SupportedGrantType>
             {% endif %}
             {% if oauth.grant_type.refresh_token.enable is sameas true %}
@@ -376,6 +504,7 @@
                 {% if oauth.grant_type.refresh_token.grant_validator is defined %}
                 <GrantTypeValidatorImplClass>{{oauth.grant_type.refresh_token.grant_validator}}</GrantTypeValidatorImplClass>
                 {% endif %}
+                <PublicClientAllowed>{{oauth.grant_type.refresh_token.allow_public_client}}</PublicClientAllowed>
             </SupportedGrantType>
             {% endif %}
             {% if oauth.grant_type.client_credentials.enable is sameas true %}
@@ -387,6 +516,7 @@
                 {% endif %}
                 <IsRefreshTokenAllowed>{{oauth.grant_type.client_credentials.allow_refresh_tokens}}</IsRefreshTokenAllowed>
                 <IdTokenAllowed>{{oauth.grant_type.client_credentials.allow_id_token}}</IdTokenAllowed>
+                <PublicClientAllowed>{{oauth.grant_type.client_credentials.allow_public_client}}</PublicClientAllowed>
             </SupportedGrantType>
             {% endif %}
             {% if oauth.grant_type.saml_bearer.enable is sameas true %}
@@ -396,6 +526,7 @@
                 {% if oauth.grant_type.saml_bearer.grant_validator is defined %}
                 <GrantTypeValidatorImplClass>{{oauth.grant_type.saml_bearer.grant_validator}}</GrantTypeValidatorImplClass>
                 {% endif %}
+                <PublicClientAllowed>{{oauth.grant_type.saml_bearer.allow_public_client}}</PublicClientAllowed>
             </SupportedGrantType>
             {% endif %}
             {% if oauth.grant_type.iwa_ntlm.enable is sameas true %}
@@ -405,6 +536,7 @@
                 {% if oauth.grant_type.iwa_ntlm.grant_validator is defined %}
                 <GrantTypeValidatorImplClass>{{oauth.grant_type.iwa_ntlm.grant_validator}}</GrantTypeValidatorImplClass>
                 {% endif %}
+                <PublicClientAllowed>{{oauth.grant_type.iwa_ntlm.allow_public_client}}</PublicClientAllowed>
             </SupportedGrantType>
             {% endif %}
             {% if oauth.grant_type.jwt_bearer.enable is sameas true %}
@@ -413,13 +545,7 @@
                 <GrantTypeHandlerImplClass>{{oauth.grant_type.jwt_bearer.grant_handler}}</GrantTypeHandlerImplClass>
                 <GrantTypeValidatorImplClass>{{oauth.grant_type.jwt_bearer.grant_validator}}</GrantTypeValidatorImplClass>
                 <IsRefreshTokenAllowed>{{oauth.grant_type.jwt_bearer.allow_refresh_tokens}}</IsRefreshTokenAllowed>
-            </SupportedGrantType>
-            {% endif %}
-            {% if oauth.grant_type.uma_ticket.enable is sameas true %}
-            <SupportedGrantType>
-                <GrantTypeName>urn:ietf:params:oauth:grant-type:uma-ticket</GrantTypeName>
-                <GrantTypeHandlerImplClass>{{oauth.grant_type.uma_ticket.grant_handler}}</GrantTypeHandlerImplClass>
-                <GrantTypeValidatorImplClass>{{oauth.grant_type.uma_ticket.grant_validator}}</GrantTypeValidatorImplClass>
+                <PublicClientAllowed>{{oauth.grant_type.jwt_bearer.allow_public_client}}</PublicClientAllowed>
             </SupportedGrantType>
             {% endif %}
             {% if oauth.grant_type.kerberos.enable is sameas true %}
@@ -427,6 +553,7 @@
                 <GrantTypeName>kerberos</GrantTypeName>
                 <GrantTypeHandlerImplClass>{{oauth.grant_type.kerberos.grant_handler}}</GrantTypeHandlerImplClass>
                 <GrantTypeValidatorImplClass>{{oauth.grant_type.kerberos.grant_validator}}</GrantTypeValidatorImplClass>
+                <PublicClientAllowed>{{oauth.grant_type.kerberos.allow_public_client}}</PublicClientAllowed>
             </SupportedGrantType>
             {% endif %}
             {% if oauth.grant_type.account_switch.enable is sameas true %}
@@ -434,6 +561,7 @@
                 <GrantTypeName>account_switch</GrantTypeName>
                 <GrantTypeHandlerImplClass>{{oauth.grant_type.account_switch.grant_handler}}</GrantTypeHandlerImplClass>
                 <GrantTypeValidatorImplClass>{{oauth.grant_type.account_switch.grant_validator}}</GrantTypeValidatorImplClass>
+                <PublicClientAllowed>{{oauth.grant_type.account_switch.allow_public_client}}</PublicClientAllowed>
             </SupportedGrantType>
             {% endif %}
             {% if oauth.grant_type.device_code.enable is sameas true %}
@@ -442,6 +570,26 @@
                 <GrantTypeHandlerImplClass>{{oauth.grant_type.device_code.grant_handler}}</GrantTypeHandlerImplClass>
                 <GrantTypeValidatorImplClass>{{oauth.grant_type.device_code.grant_validator}}</GrantTypeValidatorImplClass>
                 <IdTokenAllowed>true</IdTokenAllowed>
+                <PublicClientAllowed>{{oauth.grant_type.device_code.allow_public_client}}</PublicClientAllowed>
+            </SupportedGrantType>
+            {% endif %}
+            {% if oauth.grant_type.organization_switch.enable is sameas true %}
+            <SupportedGrantType>
+                <GrantTypeName>organization_switch</GrantTypeName>
+                <GrantTypeHandlerImplClass>{{oauth.grant_type.organization_switch.grant_handler}}</GrantTypeHandlerImplClass>
+                <GrantTypeValidatorImplClass>{{oauth.grant_type.organization_switch.grant_validator}}</GrantTypeValidatorImplClass>
+                <IdTokenAllowed>true</IdTokenAllowed>
+                <PublicClientAllowed>{{oauth.grant_type.organization_switch.allow_public_client}}</PublicClientAllowed>
+            </SupportedGrantType>
+            {% endif %}
+            {% if oauth.grant_type.token_exchange.enable is sameas true %}
+            <SupportedGrantType>
+                <GrantTypeName>urn:ietf:params:oauth:grant-type:token-exchange</GrantTypeName>
+                <GrantTypeHandlerImplClass>{{oauth.grant_type.token_exchange.grant_handler}}</GrantTypeHandlerImplClass>
+                <GrantTypeValidatorImplClass>{{oauth.grant_type.token_exchange.grant_validator}}</GrantTypeValidatorImplClass>
+                <IdTokenAllowed>false</IdTokenAllowed>
+                <IsRefreshTokenAllowed>{{oauth.grant_type.token_exchange.allow_refresh_tokens}}</IsRefreshTokenAllowed>
+                <PublicClientAllowed>{{oauth.grant_type.token_exchange.allow_public_client}}</PublicClientAllowed>
             </SupportedGrantType>
             {% endif %}
             {% for grant_type in oauth.custom_grant_type %}
@@ -493,12 +641,12 @@
            {% for callback_handler in oauth.extensions.callback_handlers %}
               <OAuthCallbackHandler Class="{{callback_handler.class}}">
                 {% if callback_handler.priority is defined %}
-                    <Priority Value="{{callback_handler.priority}}"/>
+                    <Priority>{{callback_handler.priority}}</Priority>
                 {% endif %}
                 {% if callback_handler.properties is defined %}
                   <Properties>
                     {% for key,value in callback_handler.properties.items() %}
-                      <Properties> name="{{key}}">{{value}} </Properties>
+                      <Property Name="{{key}}">{{value}}</Property>
                     {% endfor %}
                   </Properties>
                  {% endif %}
@@ -548,6 +696,8 @@
             <ScopeHandler class="{{scope_handler.class}}" />
         {% endfor %}
         </ScopeHandlers>
+
+        <EnableGlobalRBACScopeIssuer>{{oauth.global_rbac_scope_issuer.enable}}</EnableGlobalRBACScopeIssuer>
 
         <!-- Assertions can be used to embedd parameters into access token. -->
         <EnableAssertions>
@@ -612,6 +762,12 @@
             {% else %}
             <IATValidityPeriod>{{oauth.grant_type.jwt.iat_validity_period}}</IATValidityPeriod>
             {% endif %}
+            {% if jwt.enable_jwt_cache is defined %}
+            <!--This config will be DEPRECATED. Use `oauth.grant_type.jwt.enable_jwt_cache`-->
+            <EnableJWTCache>{{jwt.enable_jwt_cache}}</EnableJWTCache>
+            {% else %}
+            <EnableJWTCache>{{oauth.grant_type.jwt.enable_jwt_cache}}</EnableJWTCache>
+            {% endif %}
         </JWTGrant>
 
         <SAML2Grant>
@@ -650,6 +806,16 @@
                 <SupportedIDTokenEncryptionMethod>{{method}}</SupportedIDTokenEncryptionMethod>
                 {% endfor %}
             </SupportedIDTokenEncryptionMethods>
+            <SupportedRequestObjectEncryptionAlgorithms>
+                {% for algorithm in oauth.oidc.request_object.supported_encryption_algorithms %}
+                <SupportedRequestObjectEncryptionAlgorithm>{{algorithm}}</SupportedRequestObjectEncryptionAlgorithm>
+                {% endfor %}
+            </SupportedRequestObjectEncryptionAlgorithms>
+            <SupportedRequestObjectEncryptionMethods>
+                {% for method in oauth.oidc.request_object.supported_encryption_methods %}
+                <SupportedRequestObjectEncryptionMethod>{{method}}</SupportedRequestObjectEncryptionMethod>
+                {% endfor %}
+            </SupportedRequestObjectEncryptionMethods>
 
             <EnableAudiences>true</EnableAudiences>
             {% if oauth.oidc.id_token.audiences|length %}
@@ -749,7 +915,55 @@
             {% if oauth.oidc.allow_additional_params_from_post_logout_redirect_uri is defined %}
             <AllowAdditionalParamsFromPostLogoutRedirectURI>{{oauth.oidc.allow_additional_params_from_post_logout_redirect_uri}}</AllowAdditionalParamsFromPostLogoutRedirectURI>
             {% endif %}
+
+            <!--
+                FAPI Profile Support.
+            -->
+            <FAPI>
+                <EnableFAPIValidation>{{oauth.oidc.fapi.enable_validation}}</EnableFAPIValidation>
+                {% if oauth.oidc.fapi.enable_ciba_profile is defined %}
+                <EnableCibaProfile>{{oauth.oidc.fapi.enable_ciba_profile}}</EnableCibaProfile>
+                {% endif %}
+                {% if oauth.oidc.fapi.enable_security_profile is defined %}
+                <EnableSecurityProfile>{{oauth.oidc.fapi.enable_security_profile}}</EnableSecurityProfile>
+                {% endif %}
+                <AllowedClientAuthenticationMethods>
+                    {% for authmethod in oauth.oidc.fapi.allowed_client_authentication_methods %}
+                        <AllowedClientAuthenticationMethod>{{authmethod}}</AllowedClientAuthenticationMethod>
+                    {% endfor %}
+                </AllowedClientAuthenticationMethods>
+                <AllowedSignatureAlgorithms>
+                    {% for algorithm in oauth.oidc.fapi.allowed_signature_algorithms %}
+                        <AllowedSignatureAlgorithm>{{algorithm}}</AllowedSignatureAlgorithm>
+                    {% endfor %}
+                </AllowedSignatureAlgorithms>
+            </FAPI>
+
+            <SupportedTokenEndpointSigningAlgorithms>
+                {% for algorithm in oauth.oidc.token_endpoint.signing_algorithms %}
+                    <SupportedTokenEndpointSigningAlgorithm>{{algorithm}}</SupportedTokenEndpointSigningAlgorithm>
+                {% endfor %}
+            </SupportedTokenEndpointSigningAlgorithms>
+            <SupportedIDTokenSigningAlgorithms>
+                {% for algorithm in oauth.oidc.id_token.signing_algorithms %}
+                    <SupportedIDTokenSigningAlgorithm>{{algorithm}}</SupportedIDTokenSigningAlgorithm>
+                {% endfor %}
+            </SupportedIDTokenSigningAlgorithms>
+            <SupportedRequestObjectSigningAlgorithms>
+                {% for algorithm in oauth.oidc.request_object.signing_algorithms %}
+                    <SupportedRequestObjectSigningAlgorithm>{{algorithm}}</SupportedRequestObjectSigningAlgorithm>
+                {% endfor %}
+            </SupportedRequestObjectSigningAlgorithms>
+
+            <DefaultSubjectType>{{oauth.oidc.subject_type.default_subject_type}}</DefaultSubjectType>
+            <EnablePairwiseSubForAccessToken>{{oauth.oidc.subject_type.enable_pairwise_subject_for_access_tokens_if_pairwise_subject_type_selection}}</EnablePairwiseSubForAccessToken>
+            <EnableTLSCertificateBoundAccessTokensViaBindingType>{{oauth.oidc.enable_tls_certificate_bound_access_tokens_via_binding_type}}</EnableTLSCertificateBoundAccessTokensViaBindingType>
         </OpenIDConnect>
+
+        <!-- OIDCSessionStateManager configuration -->
+        {% if oauth.oidc.session_state_manager is defined %}
+        <OIDCSessionStateManager>{{oauth.oidc.session_state_manager}}</OIDCSessionStateManager>
+        {% endif %}
 
         <!--
             Configs related to OAuth2 Device Code Grant.
@@ -763,6 +977,14 @@
         </DeviceCodeGrant>
 
         <!--
+            Configs related to OAuth2 Pushed Authorization Requests.
+            Supported versions: IS 6.2.0 onwards.
+        -->
+        <PAR>
+            <ExpiryTime>{{oauth.par.expiry_time}}</ExpiryTime>
+        </PAR>
+
+        <!--
             Config related to display name in Authorization Code Grant consent page.
             Default value : false
         -->
@@ -772,10 +994,22 @@
 
         <!-- Configs related to OAuth2 token persistence -->
         <TokenPersistence>
-            <Enable>true</Enable>
+            <Enable>{{oauth.token_persistence.enable}}</Enable>
             <PoolSize>0</PoolSize>
             <RetryCount>{{oauth.token_generation.retry_count_on_persistence_failures}}</RetryCount>
         </TokenPersistence>
+        
+        <!--
+            Config related to OAuth2 authorization code persistence.
+            Prior to IS 7.0.0, this was handled by the config <TokenPersistence>.<Enable>.
+       -->
+        <EnableAuthCodePersistence>true</EnableAuthCodePersistence>
+
+        <!--
+            Config to enable revoked token headers : "RevokedAccessToken", "RevokedRefreshToken" in OAuth2 revoke
+            endpoint response.
+        -->
+        <EnableRevokeTokenHeadersInResponse>{{oauth.revoked_token_headers_in_response.enable}}</EnableRevokeTokenHeadersInResponse>
 
         <!--
             Configuration provides the ability to renew the access token and the refresh token(where applicable) per each token request
@@ -824,6 +1058,13 @@
         -->
         <DCRM>
             <ApplicationRolePermissionRequiredToView>{{oauth.dcrm.application_role_permission_required_to_view}}</ApplicationRolePermissionRequiredToView>
+            <ClientAuthenticationRequired>{{oauth.dcr.authentication_required}}</ClientAuthenticationRequired>
+            <MandatorySoftwareStatement>{{oauth.dcr.mandate_ssa}}</MandatorySoftwareStatement>
+            {% if oauth.dcr.ssa_jkws is defined %}
+            <SoftwareStatementJWKS>{{oauth.dcr.ssa_jkws}}</SoftwareStatementJWKS>
+            {% endif %}
+            <EnableFAPIEnforcement>{{oauth.dcr.enable_fapi_enforcement}}</EnableFAPIEnforcement>
+            <EnableSectorIdentifierURIValidation>{{oauth.dcr.enable_sector_identifier_validation}}</EnableSectorIdentifierURIValidation>
         </DCRM>
 
         <!--
@@ -849,6 +1090,21 @@
         Default value: true
         -->
         <EnableJWTTokenValidationDuringIntrospection>{{oauth.enable_jwt_token_validation_during_introspection}}</EnableJWTTokenValidationDuringIntrospection>
+
+        <!--
+        By enabling this property, client id will be used as the sub claim for the access tokens issued for the
+        authenticated applications.
+
+        Default value : true
+        -->
+        <UseClientIdAsSubClaimForAppTokens>{{oauth.use_client_id_as_sub_claim_for_app_tokens}}</UseClientIdAsSubClaimForAppTokens>
+
+        <!--
+        By enabling this property, username will be removed from the introspection response for application tokens.
+
+        Default value : true
+        -->
+        <RemoveUsernameFromIntrospectionResponseForAppTokens>{{oauth.remove_username_from_introspection_response_for_app_tokens}}</RemoveUsernameFromIntrospectionResponseForAppTokens>
 
         {% if oauth.enable_system_level_internal_scope_management is defined %}
         <!--
@@ -880,7 +1136,87 @@
         {% if oauth.client_id_validation_regex is defined %}
         <ClientIdValidationRegex>{{oauth.client_id_validation_regex}}</ClientIdValidationRegex>
         {% endif %}
+
+        <!-- Configuration for allowing users to introspect tokens from other tenants. -->
+        <AllowCrossTenantTokenIntrospection>{{oauth.introspect.allow_cross_tenant}}</AllowCrossTenantTokenIntrospection>
+
+        {% if oauth.jwt.renew_token_without_revoking_existing is defined %}
+        <JWT>
+            <RenewTokenWithoutRevokingExisting>
+                <Enable>{{oauth.jwt.renew_token_without_revoking_existing.enable}}</Enable>
+                {% if oauth.jwt.renew_token_without_revoking_existing.allowed_grant_types is defined %}
+                <AllowedGrantTypes>
+                    {% for allowed_grant_type in oauth.jwt.renew_token_without_revoking_existing.allowed_grant_types %}
+                    <AllowedGrantType>{{allowed_grant_type}}</AllowedGrantType>
+                    {% endfor %}
+                </AllowedGrantTypes>
+                {% endif %}
+            </RenewTokenWithoutRevokingExisting>
+        </JWT>
+        {% endif %}
+
+        {% if oauth.restricted_scopes is defined %}
+        <RestrictedScopes>
+            {% for restricted_scope in oauth.restricted_scopes %}
+            <RestrictedScope>{{restricted_scope}}</RestrictedScope>
+            {% endfor %}
+        </RestrictedScopes>
+        {% endif %}
+
+        <!-- Configuration to enable setting local IDP generated AMR values with the values sent by the used idp. -->
+        <ReplaceDefaultAMRValuesWithIDPSentValues>{{replace_amr_value_with_idp_sent_values.enable}}</ReplaceDefaultAMRValuesWithIDPSentValues>
+
+        <!-- Configuration to enable global scope validators. -->
+        <GlobalScopeValidators>
+            <RoleBasedScopeIssuer>
+                <Enable>{{oauth.global_scope_validators.role_based_scope_issuer.enable}}</Enable>
+            </RoleBasedScopeIssuer>
+        </GlobalScopeValidators>
+        {% if oauth.use_legacy_scopes_as_alias_for_new_scopes is defined %}
+        <!--
+        Configuration to maintain backward compatibility for the internal scopes used for the system API access control.
+        Prior to IS 7.0.0, some of the internal scopes were used as shared scopes for multiple APIs for the access control.
+        With the introduction of new authorization runtime with IS 7.0.0, new internal scopes were introduced for some of the APIs
+        which previously used shared scopes. This configuration will allow to use the legacy scopes as alias for the new scopes.
+        -->
+        <UseLegacyScopesAsAliasForNewScopes>{{oauth.use_legacy_scopes_as_alias_for_new_scopes}}</UseLegacyScopesAsAliasForNewScopes>
+        {% endif %}
+        {% if oauth.use_legacy_permission_access_for_user_based_auth is defined %}
+        <!--
+        Configuration to maintain backward compatibility for user based authentication handlers like Basic Auth to have
+        the previous access level. Prior to IS 7.0.0, permissions of the users were used for the access control of user
+        based authentication handlers. With the introduction of new authorization runtime with IS 7.0.0, scopes are used
+        to control the access of user based authentication handlers. Even though the migration of permissions to scopes
+        handle, still there are new internal scopes introduced for some APIs which previously used shared scopes. This
+        configuration will give the same access level for the shared scopes.
+        -->
+        <UseLegacyPermissionAccessForUserBasedAuth>{{oauth.use_legacy_permission_access_for_user_based_auth}}</UseLegacyPermissionAccessForUserBasedAuth>
+        {% endif %}
+        {% if oauth.extensions.scope_metadata_service is defined %}
+        <ScopeMetadataService>{{oauth.extensions.scope_metadata_service}}</ScopeMetadataService>
+        {% endif %}
+
+        <!-- Configuration to pass a list of keys which are restricted to be sent as query parameters. -->
+        <RestrictedQueryParameters>
+            {%for parameter in oauth.restricted_query_parameters%}
+                <Parameter>{{parameter}}</Parameter>
+            {% endfor %}
+        </RestrictedQueryParameters>
     </OAuth>
+
+    <RestApiAuthentication>
+            <!-- Configuration for adding realm user field in WWW-Authenticate header. -->
+            <AddRealmUserToError>{{rest_api_authentication.add_realm_user_to_error}}</AddRealmUserToError>
+    </RestApiAuthentication>
+
+    <!--
+    Configuration to select JS engine for Adaptive authentication feature.
+    Currently we are supporting OpenJDK Nashorn engine("openjdkNashorn") and JDK Nashorn Engine(Default).
+    -->
+    <AdaptiveAuth>
+   	    <ScriptEngine>{{AdaptiveAuth.ScriptEngine}}</ScriptEngine>
+   	    <LimitScriptEngineCreation>{{AdaptiveAuth.LimitScriptEngineCreation}}</LimitScriptEngineCreation>
+    </AdaptiveAuth>
 
     <MultifactorAuthentication>
         <!--Enable>false</Enable-->
@@ -932,14 +1268,20 @@
         <SAMLECPEndpoint>{{saml.endpoints.ecp}}</SAMLECPEndpoint>
         <SAMLMetadataValidityPeriod>{{saml.metadata.validity_period}}</SAMLMetadataValidityPeriod>
         <SAMLMetadataSigningEnabled>{{saml.metadata.enable_signing}}</SAMLMetadataSigningEnabled>
+        <SAMLIDPMetadataEnableSHA256Alg>{{saml.metadata.idp_enable_sha256}}</SAMLIDPMetadataEnableSHA256Alg>
+        <SAMLSPMetadataParsingEnableSHA256Alg>{{saml.metadata.sp_enable_sha256}}</SAMLSPMetadataParsingEnableSHA256Alg>
         <SAML2AuthenticationRequestValidityPeriodEnabled>{{saml.enable_request_validity_period}}</SAML2AuthenticationRequestValidityPeriodEnabled>
         <!-- Request validity period in minutes-->
         <SAML2AuthenticationRequestValidityPeriod>{{saml.request_validity_period}}</SAML2AuthenticationRequestValidityPeriod>
         <SAMLSPCertificateExpiryValidationEnabled>{{saml.enable_saml_sp_certificate_expiry_validation}}</SAMLSPCertificateExpiryValidationEnabled>
+        <SAMLIdpInitLogoutResponseSigningEnabled>{{saml.enable_saml_idp_init_logout_response_signing}}</SAMLIdpInitLogoutResponseSigningEnabled>
         <SAML2AuthnRequestsSigningEnabled>{{saml.metadata.enable_authentication_requests_signing}}</SAML2AuthnRequestsSigningEnabled>
         <SAMLAssertionEncyptWithAppCert>{{saml.metadata.assertion_encrypt_with_app_cert}}</SAMLAssertionEncyptWithAppCert>
         {% if saml.metadata.define_name_id_policy_if_unspecified is defined %}
             <SAML2AuthnRequestNameIdPolicyDefinedIfUnspecified>{{saml.metadata.define_name_id_policy_if_unspecified}}</SAML2AuthnRequestNameIdPolicyDefinedIfUnspecified>
+        {% endif %}
+        {% if saml.separate_multi_attributes_from_idp is defined %}
+            <SeparateMultiAttributesFromIdP>{{saml.separate_multi_attributes_from_idp}}</SeparateMultiAttributesFromIdP>
         {% endif %}
     </SSOService>
 
@@ -957,6 +1299,10 @@
             If that doesn't satisfy uncomment the following config and explicitly configure the value
         -->
         <IdentityProviderURL>{{sts.endpoint.idp}}</IdentityProviderURL>
+        <LocalSubjectIdentifier>
+            <IncludeUserStoreDomain>{{sts.local_subject_identifier.include_user_store_domain}}</IncludeUserStoreDomain>
+            <IncludeTenantDomain>{{sts.local_subject_identifier.include_tenant_domain}}</IncludeTenantDomain>
+        </LocalSubjectIdentifier>
     </SecurityTokenService>
 
     <PassiveSTS>
@@ -969,7 +1315,14 @@
         <RetryURL>{{passive_sts.endpoints.retry}}</RetryURL>
         <TokenStoreClassName>{{passive_sts.token_store_class}}</TokenStoreClassName>
         <SLOHostNameVerificationEnabled>{{passive_sts.slo.host_name_verification}}</SLOHostNameVerificationEnabled>
+        <DisableAppliesToInPassiveSTSResponse>{{passive_sts.disable_applies_to_in_response}}</DisableAppliesToInPassiveSTSResponse>
+        <EnableDefaultSignatureAndDigestAlgorithm>{{passive_sts.enable_default_signature_and_digest_alg}}</EnableDefaultSignatureAndDigestAlgorithm>
+        <EnableLogoutWreplyValidation>{{passive_sts.enable_logout_wreply_validation}}</EnableLogoutWreplyValidation>
     </PassiveSTS>
+
+    <UserAccountAssociation>
+            <EnableSHA256Key>{{user_account_association.enable_sha256}}</EnableSHA256Key>
+    </UserAccountAssociation>
 
     <EntitlementSettings>
         <ThirftBasedEntitlementConfig>
@@ -983,6 +1336,9 @@
             <!-- Enable this element to mention the host-name of your IS machine -->
             <ThriftHostName>{{entitlement.thrift.hostname}}</ThriftHostName>
         </ThirftBasedEntitlementConfig>
+        <XacmlPolicyStatus>
+            <UseLastStatusOnly>{{identity.entitlement.xacml_policy_status.use_last_status_only}}</UseLastStatusOnly>
+        </XacmlPolicyStatus>
     </EntitlementSettings>
 
     <SCIM>
@@ -1089,9 +1445,42 @@
            Supported versions : IS 5.11.0 onwards
         -->
         <ConsiderMaxLimitForTotalResult>{{scim2.consider_max_limit_for_total_results}}</ConsiderMaxLimitForTotalResult>
+
+        <!--
+             If you want to get the total records matching the client query as 'totalResult' for LDAP when filter criteria is given
+             then enable this property value.
+             Please note that for the request without filtering, LDAP will give items per page as 'totalResult' regardless of this property value.
+             Default value : false
+             Supported versions : IS 5.10.0 onwards
+        -->
+        <ConsiderTotalRecordsForTotalResultOfLDAP>{{scim2.consider_total_records_for_total_results_of_ldap}}</ConsiderTotalRecordsForTotalResultOfLDAP>
+
+        <!--
+             This configuration enhances the behavior of the SCIM2 API User Endpoint when invoked with a group-based filter.
+             It determines the totalResults based on the total user count corresponding to the given group-based filter.
+             Additionally, when invoking the user endpoint with a groups filter by passing a role (hybrid or system roles),
+             it returns an empty list when role group separation is enabled, instead of returning users linked to the passed role.
+             Default value : false
+        -->
+        <EnableGroupBasedUserFilteringImprovements>{{scim2.enable_group_based_user_filter_improvements}}</EnableGroupBasedUserFilteringImprovements>
+
+        <!--
+             If you want to remove the limit set for the count query parameter of SCIM2 Users Endpoint then disable this
+             property value.
+
+             Default value : true
+             Supported versions : IS 7.0.0 onwards
+        -->
+        <UserEndpointMaxItemsPerPageEnabled>{{scim2.user_endpoint_max_items_per_page.enable}}</UserEndpointMaxItemsPerPageEnabled>
     </SCIM2>
 
+      <PasswordPolicy>
+        <PasswordPolicyValidationHandler>
+            <Enable>{{identity_mgt.password_policy.password_policy_validation_handler.enable}}</Enable>
+        </PasswordPolicyValidationHandler>
+      </PasswordPolicy>
       <Recovery>
+        <EnableV1API>{{identity_mgt.recovery.enable_v1_api}}</EnableV1API>
         <ReCaptcha>
             <Password>
                 <Enable>{{identity_mgt.password_reset_email.enable_recaptcha}}</Enable>
@@ -1112,6 +1501,13 @@
                 <ExpiryTime>
                     <smsOtp>{{identity_mgt.password_reset_sms.sms_otp_validity}}</smsOtp>
                 </ExpiryTime>
+                <OTP>
+                    <SendOTPInEmail>{{identity_mgt.password_reset_email.otp.send_otp_in_email}}</SendOTPInEmail>
+                    <UseUppercaseInOtp>{{identity_mgt.password_reset_email.otp.use_uppercase_in_otp}}</UseUppercaseInOtp>
+                    <UseLowercaseInOtp>{{identity_mgt.password_reset_email.otp.use_lowercase_in_otp}}</UseLowercaseInOtp>
+                    <UseNumericInOtp>{{identity_mgt.password_reset_email.otp.use_numeric_in_otp}}</UseNumericInOtp>
+                    <OTPLength>{{identity_mgt.password_reset_email.otp.otp_length}}</OTPLength>
+                </OTP>
                 <smsOtp>
                     <Regex>{{identity_mgt.password_reset_sms.sms_otp_regex}}</Regex>
                 </smsOtp>
@@ -1174,6 +1570,8 @@
             <ExpiryTime>{{identity_mgt.password_reset_by_admin.code_validity_period}}</ExpiryTime>
         </AdminPasswordReset>
         <NotifyUserExistence>{{identity_mgt.recovery.notify_user_existence}}</NotifyUserExistence>
+        <!-- Whether to notify if the email is not found for the user in the recovery flow by showing an error page. -->
+        <NotifyRecoveryEmailExistence>{{identity_mgt.recovery.notify_recovery_email_existence}}</NotifyRecoveryEmailExistence>
         <!--Whether to notify the user if the user account is locked/disabled-->
         <NotifyUserAccountStatus>{{identity_mgt.recovery.notify_user_account_status}}</NotifyUserAccountStatus>
         <CallbackRegex>{{identity_mgt.recovery.callback_url}}</CallbackRegex>
@@ -1190,10 +1588,18 @@
         <ResolveNotificationChannels>
             <Enable>{{identity_mgt.notification.resolve_notification_channel}}</Enable>
         </ResolveNotificationChannels>
+        <DefaultLocale>{{identity_mgt.notification.default_locale}}</DefaultLocale>
     </Notification>
 
     <EmailVerification>
         <Enable>{{identity_mgt.user_onboarding.enable_email_verification}}</Enable>
+        <OTP>
+            <SendOTPInEmail>{{identity_mgt.user_onboarding.otp.send_otp_in_email}}</SendOTPInEmail>
+            <UseUppercaseInOtp>{{identity_mgt.user_onboarding.otp.use_uppercase_in_otp}}</UseUppercaseInOtp>
+            <UseLowercaseInOtp>{{identity_mgt.user_onboarding.otp.use_lowercase_in_otp}}</UseLowercaseInOtp>
+            <UseNumericInOtp>{{identity_mgt.user_onboarding.otp.use_numeric_in_otp}}</UseNumericInOtp>
+            <OTPLength>{{identity_mgt.user_onboarding.otp.otp_length}}</OTPLength>
+        </OTP>
         <ExpiryTime>{{identity_mgt.user_onboarding.verification_email_validity}}</ExpiryTime>
         <LockOnCreation>{{identity_mgt.user_onboarding.lock_on_creation}}</LockOnCreation>
         <Notification>
@@ -1201,8 +1607,23 @@
         </Notification>
         <AskPassword>
             <ExpiryTime>{{identity_mgt.user_onboarding.ask_password_email_validity}}</ExpiryTime>
+            {% if identity_mgt.user_onboarding.ask_password_account_activation is defined %}
+            <AccountActivation>{{identity_mgt.user_onboarding.ask_password_account_activation}}</AccountActivation>
+            {% endif %}
             <PasswordGenerator>{{identity_mgt.user_onboarding.password_generator}}</PasswordGenerator>
             <DisableRandomValueForCredentials>{{identity_mgt.user_onboarding.disable_random_value_for_credentials}}</DisableRandomValueForCredentials>
+            <Notification>
+                <!--
+                    This property was introduced to keep the email confirmation code tolerance time period value of the
+                    ask password scenario. This can be configured in minutes and must be lower that confirmation
+                    code expiry time for ask password. If the following config is configured, the existing confirmation
+                    code will be send again in the email when user ask for resend code. If this was not configured, a
+                    default value of zero (0) will be set internally.
+                -->
+                {% if identity_mgt.user_onboarding.ask_password_confirmation_code_tolerance_period is defined %}
+                <ConfirmationCodeTolerancePeriod>{{identity_mgt.user_onboarding.ask_password_confirmation_code_tolerance_period}}</ConfirmationCodeTolerancePeriod>
+                {% endif %}
+            </Notification>
         </AskPassword>
     </EmailVerification>
 
@@ -1214,6 +1635,13 @@
 
     <SelfRegistration>
         <Enable>{{identity_mgt.user_self_registration.allow_self_registration}}</Enable>
+        <OTP>
+            <SendOTPInEmail>{{identity_mgt.user_self_registration.otp.send_otp_in_email}}</SendOTPInEmail>
+            <UseUppercaseInOtp>{{identity_mgt.user_self_registration.otp.use_uppercase_in_otp}}</UseUppercaseInOtp>
+            <UseLowercaseInOtp>{{identity_mgt.user_self_registration.otp.use_lowercase_in_otp}}</UseLowercaseInOtp>
+            <UseNumericInOtp>{{identity_mgt.user_self_registration.otp.use_numeric_in_otp}}</UseNumericInOtp>
+            <OTPLength>{{identity_mgt.user_self_registration.otp.otp_length}}</OTPLength>
+        </OTP>
         <EnableAccountLockForVerifiedPreferredChannel>{{identity_mgt.user_self_registration.enable_account_lock_for_verified_preferred_channel}}</EnableAccountLockForVerifiedPreferredChannel>
         <API>
             <EnableDetailedResponseBody>{{identity_mgt.user_self_registration.enable_detailed_api_response}}</EnableDetailedResponseBody>
@@ -1223,6 +1651,30 @@
         <NotifyAccountConfirmation>{{identity_mgt.user_self_registration.notify_account_confirmation}}</NotifyAccountConfirmation>
         <Notification>
             <InternallyManage>{{identity_mgt.user_self_registration.notification.manage_internally}}</InternallyManage>
+            <Email>
+                <!--
+                    This property was introduced to keep the email confirmation code tolerance time period value of the
+                    self registration scenario using EMAIL channel. This can be configured in minutes and must be lower
+                    that confirmation code expiry time for self registration. If the following config is configured, the
+                    existing confirmation code will be send again in the email when user ask for resend code. If this
+                    was not configured, a default value of zero (0) will be set internally.
+                -->
+                {% if identity_mgt.user_self_registration.email.confirmation_code_tolerance_period is defined %}
+                <ConfirmationCodeTolerancePeriod>{{identity_mgt.user_self_registration.email.confirmation_code_tolerance_period}}</ConfirmationCodeTolerancePeriod>
+                {% endif %}
+            </Email>
+            <SMS>
+                <!--
+                    This property was introduced to keep the email confirmation code tolerance time period value of the
+                    self registration scenario using SMS channel. This can be configured in minutes and must be lower
+                    that confirmation code expiry time for self registration using SMS channel. If the following config
+                    is configured, the existing confirmation code will be send again in the email when user ask for
+                    resend code. If this was not configured, a default value of zero (0) will be set internally.
+                -->
+                {% if identity_mgt.user_self_registration.sms.confirmation_code_tolerance_period is defined %}
+                <ConfirmationCodeTolerancePeriod>{{identity_mgt.user_self_registration.sms.confirmation_code_tolerance_period}}</ConfirmationCodeTolerancePeriod>
+                {% endif %}
+            </SMS>
         </Notification>
         <ReCaptcha>{{identity_mgt.user_self_registration.enable_recaptcha}}</ReCaptcha>
         <VerificationCode>
@@ -1250,6 +1702,7 @@
             </SMSOTP>
         </VerificationCode>
         <CallbackRegex>{{identity_mgt.lite_user_registration.callback_url}}</CallbackRegex>
+        <ResendVerificationOnUserExistence>{{identity_mgt.lite_user_registration.resend_verification_on_user_existence}}</ResendVerificationOnUserExistence>
     </LiteRegistration>
 
     <LoginIdentifiers>
@@ -1272,11 +1725,19 @@
         <Claim uri = "http://wso2.org/claims/mobile">
              <VerificationOnUpdate>
                 <Enable>{{identity_mgt.user_claim_update.mobile.enable_verification}}</Enable>
+                <EnableVerificationByPrivilegedUser>{{identity_mgt.user_claim_update.mobile.enable_verification_by_privileged_user}}</EnableVerificationByPrivilegedUser>
                 <VerificationCode>
                     <ExpiryTime>{{identity_mgt.user_claim_update.mobile.verification_sms_otp_validity}}</ExpiryTime>
                 </VerificationCode>
              </VerificationOnUpdate>
         </Claim>
+        <OTP>
+            <SendOTPInEmail>{{identity_mgt.user_claim_update.otp.send_otp_in_email}}</SendOTPInEmail>
+            <UseUppercaseInOtp>{{identity_mgt.user_claim_update.otp.use_uppercase_in_otp}}</UseUppercaseInOtp>
+            <UseLowercaseInOtp>{{identity_mgt.user_claim_update.otp.use_lowercase_in_otp}}</UseLowercaseInOtp>
+            <UseNumericInOtp>{{identity_mgt.user_claim_update.otp.use_numeric_in_otp}}</UseNumericInOtp>
+            <OTPLength>{{identity_mgt.user_claim_update.otp.otp_length}}</OTPLength>
+        </OTP>
         <!-- When updating the claim value, the verification notification can be controlled by sending an additional
         temporary claim ('verifyEmail'/'verifyMobile') along with the update request. To enable this option,
         'UseVerifyClaim' should be set to true. -->
@@ -1293,6 +1754,8 @@
      <SCIM2MultiAttributeFiltering>
         <UsePagination>{{scim2_multi_attribute_filtering.use_pagination}}</UsePagination>
      </SCIM2MultiAttributeFiltering>
+
+     <OrgWiseMultiAttributeSeparator>{{org_wise_multi_attribute_separator.enabled}}</OrgWiseMultiAttributeSeparator>
 
      <!--This configuration is for enable/disable reCaptcha feature by default.
      The default configuration is to disable the reCaptcha by default. These configuration can be overrided
@@ -1334,14 +1797,20 @@
         to returns all the unmapped roles.
     -->
 
-    {% if idp_role_management.return_only_mapped_local_roles is defined %}
-        <FederatedRoleManagement>
-            <ReturnOnlyMappedLocalRoles>{{idp_role_management.return_only_mapped_local_roles}}</ReturnOnlyMappedLocalRoles>
-            {% if idp_role_management.return_manually_added_local_roles is defined %}
-            <ReturnManuallyAddedLocalRoles>{{idp_role_management.return_manually_added_local_roles}}</ReturnManuallyAddedLocalRoles>
-            {% endif %}
-        </FederatedRoleManagement>
-    {% endif %}
+    <FederatedRoleManagement>
+        {% if idp_role_management.return_only_mapped_local_roles is defined %}
+        <!--
+            This configuration is used to send only the mapped local roles.
+            The default value of the configuration is set to true.
+            Disabling this configuration is only recommended for the backward compatibility with the previous behaviour
+            of IDP role to local role mappings if needed.
+        -->
+        <ReturnOnlyMappedLocalRoles>{{idp_role_management.return_only_mapped_local_roles}}</ReturnOnlyMappedLocalRoles>
+        {% endif %}
+        {% if idp_role_management.return_manually_added_local_roles is defined %}
+        <ReturnManuallyAddedLocalRoles>{{idp_role_management.return_manually_added_local_roles}}</ReturnManuallyAddedLocalRoles>
+        {% endif %}
+    </FederatedRoleManagement>
 
     <EnableAskPasswordAdminUI>{{identity_mgt.user_onboarding.ask_password_from_user}}</EnableAskPasswordAdminUI>
 
@@ -1350,6 +1819,9 @@
 
     <AuthenticationPolicy>
         <CheckAccountExist>{{authentication_policy.check_account_exist}}</CheckAccountExist>
+        {% if authentication_policy.disable_account_lock_handler is defined %}
+        <DisableAccountLockHandler>{{authentication_policy.disable_account_lock_handler}}</DisableAccountLockHandler>
+        {% endif %}
     </AuthenticationPolicy>
 
     <!-- Show authenticated user name in audit logs. -->
@@ -1363,9 +1835,24 @@
         </Audit>
     </Authentication>
 
+    <!--
+        Enabling this configuration will do the following modifications to the logs.
+            1. Initiator of the audit logs will be changed to userId if userId is resolvable.
+            2. Initiator of the audit logs will be a masked username in the scenarios where userId is not resolvable.
+            3. PII, user claims and other sensitive information will be masked from logs.
+     -->
+    <MaskingLogs>
+    	    {% if masking_logs.enabled is defined %}
+            <Enabled>{{masking_logs.enabled}}</Enabled>
+            {% else %}
+            <Enabled>true</Enabled>
+            {% endif %}
+    </MaskingLogs>
+
     <JITProvisioning>
         <UserNameProvisioningUI>{{authentication.jit_provisioning.username_provisioning_url}}</UserNameProvisioningUI>
         <PasswordProvisioningUI>{{authentication.jit_provisioning.password_provisioning_url}}</PasswordProvisioningUI>
+        <SkipUsernamePatternValidation>{{authentication.jit_provisioning.skip_username_pattern_validation}}</SkipUsernamePatternValidation>
         <EnableEnhancedFeature>{{authentication.jit_provisioning.enable_enhanced_feature}}</EnableEnhancedFeature>
         <!-- Claims which must not delete during the syncing process of existing claim mappings with IDP claim mappings
         for JIT provisioned user. -->
@@ -1374,7 +1861,13 @@
                 <ClaimURI>{{claimuri}}</ClaimURI>
             {% endfor %}
         </IndelibleClaims>
-
+        {% if authentication.jit_provisioning.preserve_locally_added_claims is defined %}
+        <PreserveLocallyAddedClaims>{{authentication.jit_provisioning.preserve_locally_added_claims}}</PreserveLocallyAddedClaims>
+        {% endif %}
+        {% if authentication.jit_provisioning.allow_idp_login is defined %}
+            <AllowLoginToIDP>{{authentication.jit_provisioning.allow_idp_login}}</AllowLoginToIDP>
+        {% endif %}
+        <AllowAssociatingToExistingUser>{{authentication.jit_provisioning.associating_to_existing_user}}</AllowAssociatingToExistingUser>
     </JITProvisioning>
 
     <!--Application management service configurations-->
@@ -1405,15 +1898,16 @@
             -->
             <useUserTenantDomainInSaasApps>{{outbound_provisioning_management.use_user_tenant_domain_in_saas_apps}}</useUserTenantDomainInSaasApps>
         {% endif %}
+        <enableApplicationBasedOutboundProvisioning>{{outbound_provisioning_management.enable_application_based_outbound_provisioning}}</enableApplicationBasedOutboundProvisioning>
     </OutboundProvisioning>
 
 
     <EventListeners>
-        <EventListener id="workflow"
+        <EventListener id="input_validation"
                        type="org.wso2.carbon.user.core.listener.UserOperationEventListener"
-                       name="org.wso2.carbon.user.mgt.workflow.userstore.UserStoreActionListener"
-                       orderId="{{event.default_listener.workflow.priority}}"
-                       enable="{{event.default_listener.workflow.enable}}"/>
+                       name="org.wso2.carbon.identity.input.validation.mgt.listener.InputValidationListener"
+                       orderId="{{event.default_listener.validation.priority}}"
+                       enable="{{event.default_listener.validation.enable}}"/>
         <EventListener id="identity_mgt"
                        type="org.wso2.carbon.user.core.listener.UserOperationEventListener"
                        name="org.wso2.carbon.identity.mgt.IdentityMgtEventListener"
@@ -1452,6 +1946,9 @@
                        orderId="{{event.default_listener.governance_identity_store.priority}}"
                        enable="{{event.default_listener.governance_identity_store.enable}}">
             <Property name="Data.Store">{{event.default_listener.governance_identity_store.data_store}}</Property>
+            <!-- By enabling this, it will use the userstore attribute values for identity claims if the identity data
+            store value is empty for corresponding claim. -->
+            <Property name="EnableHybridDataStore">{{event.default_listener.governance_identity_store.enable_hybrid_data_store}}</Property>
         </EventListener>
         <EventListener id="application_authentication"
                        type="org.wso2.carbon.identity.core.handler.AbstractIdentityMessageHandler"
@@ -1470,6 +1967,17 @@
                        name="org.wso2.carbon.identity.oauth2.token.handler.clientauth.mutualtls.MutualTLSClientAuthenticator"
                        orderId="{{event.default_listener.mutual_tls_authenticator.priority}}"
                        enable="{{event.default_listener.mutual_tls_authenticator.enable}}">
+        </EventListener>
+        <EventListener id="private_key_jwt_authenticator"
+                       type="org.wso2.carbon.identity.core.handler.AbstractIdentityHandler"
+                       name="org.wso2.carbon.identity.oauth2.token.handler.clientauth.jwt.PrivateKeyJWTClientAuthenticator"
+                       orderId="{{event.default_listener.private_key_jwt_authenticator.priority}}"
+                       enable="{{event.default_listener.private_key_jwt_authenticator.enable}}">
+            <Property name="PreventTokenReuse">{{event.default_listener.private_key_jwt_authenticator.property.prevent_token_reuse}}</Property>
+            <Property name="RejectBeforeInMinutes">{{event.default_listener.private_key_jwt_authenticator.property.reject_before_in_minutes}}</Property>
+            {% if event.default_listener.private_key_jwt_authenticator.property.token_endpoint_alias is defined %}
+            <Property name="TokenEndpointAlias">{{event.default_listener.private_key_jwt_authenticator.property.token_endpoint_alias}}</Property>
+            {% endif %}
         </EventListener>
 
         <!-- Basic OAuth client authenticator -->
@@ -1513,6 +2021,11 @@
                        name="org.wso2.carbon.identity.application.authentication.framework.handler.request.impl.PostAuthenticatedSubjectIdentifierHandler"
                        orderId="{{event.default_listener.subject_identifier_handler.priority}}"
                        enable="{{event.default_listener.subject_identifier_handler.enable}}"/>
+        <EventListener id="failed_lockout_count_handler"
+                       type="org.wso2.carbon.identity.core.handler.AbstractIdentityHandler"
+                       name="org.wso2.carbon.identity.handler.event.account.lock.handlers.PostAuthnFailedLockoutClaimHandler"
+                       orderId="{{event.default_listener.failed_lockout_count_handler.priority}}"
+                       enable="{{event.default_listener.failed_lockout_count_handler.enable}}"/>
 
         <!-- Special UserOperationEventListeners to preserve the backward compatibility with the new unique user ID
                 related APIs  -->
@@ -1526,6 +2039,11 @@
                                name="org.wso2.carbon.identity.mgt.listener.IdentityUserIdResolverListener"
                                orderId="{{event.default_listener.userid_resolver.priority}}"
                                enable="{{event.default_listener.userid_resolver.enable}}"/>
+                <EventListener id="claim_encryption"
+                               type="org.wso2.carbon.user.core.listener.UserOperationEventListener"
+                               name="org.wso2.carbon.identity.mgt.listener.IdentityClaimValueEncryptionListener"
+                               orderId="{{event.default_listener.claim_encryption.priority}}"
+                               enable="{{event.default_listener.claim_encryption.enable}}"/>
 
         <!-- Audit Loggers -->
 
@@ -1565,12 +2083,48 @@
                        orderId="{{event.default_listener.client_certificate_authentication_handler.priority}}"
                        enable="{{event.default_listener.client_certificate_authentication_handler.enable}}"/>
 
+        <!-- New V2 Audit Loggers-->
+         <EventListener id="user_management_v2_audit_logger"
+                               type="org.wso2.carbon.user.core.listener.UserOperationEventListener"
+                               name="org.wso2.carbon.user.mgt.listeners.UserManagementV2AuditLogger"
+                               orderId="{{event.default_listener.user_management_v2_audit_logger.priority}}"
+                               enable="{{event.default_listener.user_management_v2_audit_logger.enable}}"/>
+          <EventListener id="role_management_v2_audit_logger"
+                                type="org.wso2.carbon.identity.role.v2.mgt.core.listener"
+                                name="org.wso2.carbon.identity.role.v2.mgt.core.listener.RoleManagementV2AuditLogger"
+                                orderId="{{event.default_listener.role_management_v2_audit_logger.priority}}"
+                                enable="{{event.default_listener.role_management_v2_audit_logger.enable}}"/>
+
+          <EventListener id="group_management_v2_audit_logger"
+                                         type="org.wso2.carbon.user.core.listener.GroupOperationEventListener"
+                                         name="org.wso2.carbon.user.mgt.listeners.GroupManagementV2AuditLogger"
+                                         orderId="{{event.default_listener.group_management_v2_audit_logger.priority}}"
+                                         enable="{{event.default_listener.group_management_v2_audit_logger.enable}}"/>
+
+        <!-- B2B organization management Event Listeners -->
+        <EventListener id="fragment_app_mgt_listener"
+                       type="org.wso2.carbon.identity.application.mgt.listener.ApplicationMgtListener"
+                       name="org.wso2.carbon.identity.organization.management.application.listener.FragmentApplicationMgtListener"
+                       orderId="{{event.default_listener.fragment_app_mgt_listener.priority}}"
+                       enable="{{event.default_listener.fragment_app_mgt_listener.enable}}"/>
+
+        <EventListener id="organization_user_operation_listener"
+                       type="org.wso2.carbon.user.core.listener.UserOperationEventListener"
+                       name="org.wso2.carbon.identity.organization.management.role.management.service.listener.OrganizationUserOperationEventListener"
+                       orderId="{{event.default_listener.organization_user_operation_listener.priority}}"
+                       enable="{{event.default_listener.organization_user_operation_listener.enable}}"/>
+        <EventListener id="organization_discovery_user_operation_listener"
+                       type="org.wso2.carbon.user.core.listener.UserOperationEventListener"
+                       name="org.wso2.carbon.identity.organization.discovery.service.listener.OrganizationDiscoveryUserOperationListener"
+                       orderId="{{event.default_listener.organization_discovery_user_operation_listener.priority}}"
+                       enable="{{event.default_listener.organization_discovery_user_operation_listener.enable}}"/>
+        <EventListener id="organization_user_association_listener"
+                       type="org.wso2.carbon.user.core.listener.UserOperationEventListener"
+                       name="org.wso2.carbon.identity.organization.management.organization.user.sharing.listener.SharedUserOperationEventListener"
+                       orderId="{{event.default_listener.organization_user_association_listener.priority}}"
+                       enable="{{event.default_listener.organization_user_association_listener.enable}}"/>
+
         <!-- Introspection Data Providers -->
-        <EventListener id="uma_introspection_data_provider" type="org.wso2.carbon.identity.core.handler.AbstractIdentityHandler"
-                name="org.wso2.carbon.identity.oauth.uma.permission.service.impl.UMAIntrospectionDataProvider"
-                orderId="{{event.default_listener.uma_introspection_data_provider.priority}}"
-                enable="{{event.default_listener.uma_introspection_data_provider.enable}}">
-        </EventListener>
         <EventListener id="is_introspection_data_provider" type="org.wso2.carbon.identity.core.handler.AbstractIdentityHandler"
                 name="org.wso2.carbon.identity.oauth2.token.handler.clientauth.mutualtls.introspection.ISIntrospectionDataProvider"
                 orderId="{{event.default_listener.is_introspection_data_provider.priority}}"
@@ -1585,6 +2139,12 @@
                     <Property name="ScopeWithinUserstore">{{identity_mgt.user_claim_update.uniqueness.scope_within_userstore}}</Property>
             </EventListener>
         {% endif %}
+
+        <EventListener id="basic_user_info_provider" type="org.wso2.carbon.identity.core.handler.AbstractIdentityHandler"
+                       name="org.wso2.carbon.identity.user.export.core.internal.service.impl.BasicUserInformationProvider"
+                       orderId="{{event.default_listener.basic_user_info_provider.priority}}"
+                       enable="{{event.default_listener.basic_user_info_provider.enable}}">
+        </EventListener>
 
         <!-- Custom Event Listeners -->
         {% for listener in event_listener %}
@@ -1773,6 +2333,11 @@
                    timeout="{{cache.idp_cache_by_name.timeout}}"
                    capacity="{{cache.idp_cache_by_name.capacity}}"
                    isDistributed="false"/>
+            <Cache id="private_key_jwt" name="PrivateKeyJWT"
+                   enable="{{cache.private_key_jwt.enable}}"
+                   timeout="{{cache.private_key_jwt.timeout}}"
+                   capacity="{{cache.private_key_jwt.capacity}}"
+                   isDistributed="false"/>
             {% for cache in cache.manager %}
              <Cache name="{{cache.name}}"
                     enable="true"
@@ -1799,6 +2364,20 @@
     </CacheConfig>
 
     <EnableSessionNonceCookie>{{session.nonce.cookie.enabled}}</EnableSessionNonceCookie>
+
+    {% if session.nonce.cookie.default_whitelist_authenticators is defined or session.nonce.cookie.whitelist_authenticators is defined %}
+        <SessionNonceCookie>
+            {% for whitelist_authenticator in session.nonce.cookie.default_whitelist_authenticators %}
+            <WhitelistedAuthenticator>{{whitelist_authenticator}}</WhitelistedAuthenticator>
+            {% endfor %}
+            {% for whitelist_authenticator in session.nonce.cookie.whitelist_authenticators %}
+            <WhitelistedAuthenticator>{{whitelist_authenticator}}</WhitelistedAuthenticator>
+            {% endfor %}
+        </SessionNonceCookie>
+    {% endif %}
+
+    <!-- Config to enable performing validations for expired authentication context cache entry. -->
+    <EnableAuthenticationContextExpiryValidation>{{session.authentication.context.expiry.validation}}</EnableAuthenticationContextExpiryValidation>
 
     {% if identity.cookies is defined %}
     <Cookies>
@@ -1834,7 +2413,7 @@
         <Resource context="(.*)/lsp/(.*)" secured="true" http-method="all"/>
         <Resource context="(.*)" secured="false" http-method="OPTIONS"/>
         <Resource context="/" secured="false" http-method="GET"/>
-        <Resource context="(.*)/api/identity/user/v1.0/validate-code(.*)" secured="true" http-method="all">
+        <Resource context="(.*)/api/identity/user/v1.0/validate-code(.*)" secured="true" http-method="POST">
             <Permissions>/permission/admin/manage/identity/identitymgt</Permissions>
             <Scopes>internal_identity_mgt_view</Scopes>
             <Scopes>internal_identity_mgt_update</Scopes>
@@ -1845,15 +2424,21 @@
             <Permissions>/permission/admin/manage/identity/identitymgt</Permissions>
             <Scopes>internal_identity_mgt_view</Scopes>
         </Resource>
-        <Resource context="(.*)/api/identity/user/v1.0/resend-code(.*)" secured="true" http-method="all"/>
+        <Resource context="(.*)/api/identity/user/v1.0/resend-code(.*)" secured="true" http-method="all">
+            <Permissions>/permission/admin/manage/identity/identitymgt</Permissions>
+            <Scopes>internal_identity_mgt_view</Scopes>
+            <Scopes>internal_identity_mgt_update</Scopes>
+            <Scopes>internal_identity_mgt_create</Scopes>
+            <Scopes>internal_identity_mgt_delete</Scopes>
+        </Resource>
         <Resource context="(.*)/api/identity/user/v1.0/me(.*)" secured="true" http-method="POST"/>
         <Resource context="(.*)/api/identity/user/v1.0/lite(.*)" secured="true" http-method="POST"/>
         <Resource context="(.*)/api/identity/user/v1.0/me(.*)" secured="true" http-method="GET"/>
-        <Resource context="(.*)/api/identity/user/v1.0/pi-info" secured="true" http-method="all">
+        <Resource context="(.*)/api/identity/user/v1.0/pi-info" secured="true" http-method="GET">
              <Permissions>/permission/admin/manage/identity/usermgt/view</Permissions>
             <Scopes>internal_user_mgt_view</Scopes>
         </Resource>
-        <Resource context="(.*)/api/identity/user/v1.0/pi-info/(.*)" secured="true" http-method="all">
+        <Resource context="(.*)/api/identity/user/v1.0/pi-info/(.*)" secured="true" http-method="GET">
             <Permissions>/permission/admin/manage/identity/usermgt/view</Permissions>
             <Scopes>internal_user_mgt_view</Scopes>
         </Resource>
@@ -1914,40 +2499,6 @@
             <Scopes>internal_config_mgt_delete</Scopes>
         </Resource>
 
-        <Resource context="(.*)/api/server/v1/secret-type/(.*)" secured="true" http-method="POST">
-            <Permissions>/permission/admin/manage/identity/secretmgt/add</Permissions>
-            <Scopes>internal_secret_mgt_add</Scopes>
-        </Resource>
-        <Resource context="(.*)/api/server/v1/secret-type/(.*)" secured="true" http-method="PUT">
-            <Permissions>/permission/admin/manage/identity/secretmgt/update</Permissions>
-            <Scopes>internal_secret_mgt_update</Scopes>
-        </Resource>
-        <Resource context="(.*)/api/server/v1/secret-type/(.*)" secured="true" http-method="GET">
-            <Permissions>/permission/admin/manage/identity/secretmgt/view</Permissions>
-            <Scopes>internal_secret_mgt_view</Scopes>
-        </Resource>
-        <Resource context="(.*)/api/server/v1/secret-type/(.*)" secured="true" http-method="DELETE">
-            <Permissions>/permission/admin/manage/identity/secretmgt/delete</Permissions>
-            <Scopes>internal_secret_mgt_delete</Scopes>
-        </Resource>
-
-        <Resource context="(.*)/api/server/v1/secrets/(.*)" secured="true" http-method="POST">
-            <Permissions>/permission/admin/manage/identity/secretmgt/add</Permissions>
-            <Scopes>internal_secret_mgt_add</Scopes>
-        </Resource>
-        <Resource context="(.*)/api/server/v1/secrets/(.*)" secured="true" http-method="PUT">
-            <Permissions>/permission/admin/manage/identity/secretmgt/update</Permissions>
-            <Scopes>internal_secret_mgt_update</Scopes>
-        </Resource>
-        <Resource context="(.*)/api/server/v1/secrets/(.*)" secured="true" http-method="GET">
-            <Permissions>/permission/admin/manage/identity/secretmgt/view</Permissions>
-            <Scopes>internal_secret_mgt_view</Scopes>
-        </Resource>
-        <Resource context="(.*)/api/server/v1/secrets/(.*)" secured="true" http-method="DELETE">
-            <Permissions>/permission/admin/manage/identity/secretmgt/delete</Permissions>
-            <Scopes>internal_secret_mgt_delete</Scopes>
-        </Resource>
-
         <Resource context="(.*)/api/server/v1/branding-preference(.*)" secured="false" http-method="GET"/>
         <Resource context="(.*)/api/server/v1/branding-preference(.*)" secured="true" http-method="POST">
             <Permissions>/permission/admin/manage/identity/applicationmgt/update</Permissions>
@@ -1960,6 +2511,28 @@
         <Resource context="(.*)/api/server/v1/branding-preference(.*)" secured="true" http-method="DELETE">
             <Permissions>/permission/admin/manage/identity/applicationmgt/update</Permissions>
             <Scopes>internal_application_mgt_update</Scopes>
+        </Resource>
+
+        <Resource context="(.*)/api/server/v1/validation-rules(.*)" secured="false" http-method="GET"/>
+        <Resource context="(.*)/api/server/v1/validation-rules(.*)" secured="true" http-method="PUT">
+            <Permissions>/permission/admin/manage/identity/configmgt/update</Permissions>
+            <Scopes>internal_config_mgt_update</Scopes>
+        </Resource>
+        <Resource context="(.*)/api/server/v1/idv-providers(.*)" secured="true" http-method="POST">
+            <Permissions>/permission/admin/manage/identity/idvp/add</Permissions>
+            <Scopes>internal_idvp_add</Scopes>
+        </Resource>
+        <Resource context="(.*)/api/server/v1/idv-providers(.*)" secured="true" http-method="PUT">
+            <Permissions>/permission/admin/manage/identity/idvp/update</Permissions>
+            <Scopes>internal_idvp_update</Scopes>
+        </Resource>
+        <Resource context="(.*)/api/server/v1/idv-providers(.*)" secured="true" http-method="DELETE">
+            <Permissions>/permission/admin/manage/identity/idvp/delete</Permissions>
+            <Scopes>internal_idvp_delete</Scopes>
+        </Resource>
+        <Resource context="(.*)/api/server/v1/idv-providers(.*)" secured="true" http-method="GET">
+            <Permissions>/permission/admin/manage/identity/idvp/view</Permissions>
+            <Scopes>internal_idvp_view</Scopes>
         </Resource>
 
         <Resource context="(.*)/api/identity/consent-mgt/v1.0/consents" secured="true" http-method="all"/>
@@ -1995,7 +2568,14 @@
             <Scopes>internal_consent_mgt_delete</Scopes>
         </Resource>
 
-        <Resource context="(.*)/api/identity/recovery/(.*)" secured="true" http-method="all">
+        <Resource context="(.*)/api/identity/recovery/(.*)" secured="true" http-method="GET">
+            <Permissions>/permission/admin/manage/identity/identitymgt</Permissions>
+            <Scopes>internal_identity_mgt_view</Scopes>
+            <Scopes>internal_identity_mgt_update</Scopes>
+            <Scopes>internal_identity_mgt_create</Scopes>
+            <Scopes>internal_identity_mgt_delete</Scopes>
+        </Resource>
+        <Resource context="(.*)/api/identity/recovery/(.*)" secured="true" http-method="POST">
             <Permissions>/permission/admin/manage/identity/identitymgt</Permissions>
             <Scopes>internal_identity_mgt_view</Scopes>
             <Scopes>internal_identity_mgt_update</Scopes>
@@ -2004,19 +2584,19 @@
         </Resource>
         <Resource context="(.*)/.well-known/openid-configuration(.*)" secured="false" http-method="all"/>
         <Resource context="/.well-known/webfinger(.*)" secured="false" http-method="all"/>
-        <Resource context="(.*)/api/identity/oauth2/dcr/v1.1/register(.*)" secured="true" http-method="POST">
+        <Resource context="(.*)/api/identity/oauth2/dcr/(.*)" secured="true" http-method="POST">
             <Permissions>/permission/admin/manage/identity/applicationmgt/create</Permissions>
             <Scopes>internal_application_mgt_create</Scopes>
         </Resource>
-        <Resource context="(.*)/api/identity/oauth2/dcr/v1.1/register(.*)" secured="true" http-method="DELETE">
+        <Resource context="(.*)/api/identity/oauth2/dcr/(.*)" secured="true" http-method="DELETE">
             <Permissions>/permission/admin/manage/identity/applicationmgt/delete</Permissions>
             <Scopes>internal_application_mgt_delete</Scopes>
         </Resource>
-        <Resource context="(.*)/api/identity/oauth2/dcr/v1.1/register(.*)" secured="true" http-method="PUT">
+        <Resource context="(.*)/api/identity/oauth2/dcr/(.*)" secured="true" http-method="PUT">
             <Permissions>/permission/admin/manage/identity/applicationmgt/update</Permissions>
             <Scopes>internal_application_mgt_update</Scopes>
         </Resource>
-        <Resource context="(.*)/api/identity/oauth2/dcr/v1.1/register(.*)" secured="true" http-method="GET">
+        <Resource context="(.*)/api/identity/oauth2/dcr/(.*)" secured="true" http-method="GET">
             <Permissions>/permission/admin/manage/identity/applicationmgt/view</Permissions>
             <Scopes>internal_application_mgt_view</Scopes>
         </Resource>
@@ -2049,6 +2629,10 @@
             <Scopes>internal_role_mgt_view</Scopes>
         </Resource>
         <Resource context="(.*)/scim2/Roles/.search" secured="true" http-method="POST">
+            <Permissions>/permission/admin/manage/identity/rolemgt/view</Permissions>
+            <Scopes>internal_role_mgt_view</Scopes>
+        </Resource>
+        <Resource context="(.*)/scim2/v2/Roles/.search" secured="true" http-method="POST">
             <Permissions>/permission/admin/manage/identity/rolemgt/view</Permissions>
             <Scopes>internal_role_mgt_view</Scopes>
         </Resource>
@@ -2120,6 +2704,26 @@
               <Permissions>/permission/admin/manage/identity/rolemgt/delete</Permissions>
               <Scopes>internal_role_mgt_delete</Scopes>
         </Resource>
+        <Resource context="(.*)/scim2/v2/Roles(.*)" secured="true" http-method="POST">
+            <Permissions>/permission/admin/manage/identity/rolemgt/create</Permissions>
+            <Scopes>internal_role_mgt_create</Scopes>
+        </Resource>
+        <Resource context="(.*)/scim2/v2/Roles(.*)" secured="true" http-method="GET">
+             <Permissions>/permission/admin/manage/identity/rolemgt/view</Permissions>
+             <Scopes>internal_role_mgt_view</Scopes>
+        </Resource>
+        <Resource context="(.*)/scim2/v2/Roles/(.*)" secured="true" http-method="PUT">
+              <Permissions>/permission/admin/manage/identity/rolemgt/update</Permissions>
+              <Scopes>internal_role_mgt_update</Scopes>
+        </Resource>
+        <Resource context="(.*)/scim2/v2/Roles/(.*)" secured="true" http-method="PATCH">
+              <Permissions>/permission/admin/manage/identity/rolemgt/update</Permissions>
+              <Scopes>internal_role_mgt_update</Scopes>
+        </Resource>
+        <Resource context="(.*)/scim2/v2/Roles/(.*)" secured="true" http-method="DELETE">
+              <Permissions>/permission/admin/manage/identity/rolemgt/delete</Permissions>
+              <Scopes>internal_role_mgt_delete</Scopes>
+        </Resource>
         {% if resource_access_control.scim2_me_get_method.keep_resource is sameas true %}
         <Resource
                 context="(.*)/scim2/Me"
@@ -2134,7 +2738,7 @@
                   secured="{{resource_access_control.scim2_me_delete_method.secured}}"
                   http-method="DELETE">
             <Permissions>{{resource_access_control.scim2_me_delete_method.permission}}</Permissions>
-            <Scopes>internal_user_mgt_delete</Scopes>
+            <Scopes>{{resource_access_control.scim2_me_delete_method.scope}}</Scopes>
         </Resource>
         {% endif %}
         {% if resource_access_control.scim2_me_put_method.keep_resource is sameas true %}
@@ -2158,7 +2762,7 @@
                   secured="{{resource_access_control.scim2_me_post_method.secured}}"
                   http-method="POST">
             <Permissions>{{resource_access_control.scim2_me_post_method.permission}}</Permissions>
-            <Scopes>internal_user_mgt_create</Scopes>
+            <Scopes>{{resource_access_control.scim2_me_post_method.scope}}</Scopes>
         </Resource>
         {% endif %}
         <Resource context="(.*)/scim2/ServiceProviderConfig" secured="false" http-method="all">
@@ -2167,7 +2771,7 @@
         <Resource context="(.*)/scim2/ResourceTypes" secured="false" http-method="all">
             <Permissions></Permissions>
         </Resource>
-        <Resource context="(.*)/scim2/Schemas" secured="true" http-method="all"/>
+        <Resource context="(.*)/scim2/Schemas(.*)" secured="true" http-method="all"/>
         <Resource context="(.*)/scim2/Bulk(.*)" secured="true"  http-method="all">
             <Permissions>/permission/admin/manage/identity/usermgt</Permissions>
             <Scopes>internal_user_mgt_create</Scopes>
@@ -2175,16 +2779,6 @@
             <Scopes>internal_user_mgt_list</Scopes>
             <Scopes>internal_user_mgt_delete</Scopes>
         </Resource>
-        <Resource context="(.*)/api/identity/oauth2/dcr/(.*)" secured="true" http-method="all">
-            <Permissions>/permission/admin/manage/identity/applicationmgt</Permissions>
-            <Scopes>internal_application_mgt_create</Scopes>
-            <Scopes>internal_application_mgt_update</Scopes>
-            <Scopes>internal_application_mgt_view</Scopes>
-            <Scopes>internal_application_mgt_delete</Scopes>
-        </Resource>
-
-        <Resource context="(.*)/api/identity/oauth2/uma/resourceregistration/v1.0/(.*)" secured="true" http-method="all"/>
-        <Resource context="(.*)/api/identity/oauth2/uma/permission/v1.0/(.*)" secured="true" http-method="all"/>
 
         <Resource context="(.*)/api/identity/auth/v1.1/data(.*)" secured="true" http-method="all"/>
         <Resource context="(.*)/api/identity/auth/v1.1/context(.*)" secured="true" http-method="all"/>
@@ -2254,8 +2848,7 @@
             <Permissions>none</Permissions>
             <Scopes>internal_login</Scopes>
         </Resource>
-        <Resource context="(.*)/api/users/v1/me/challenge-answers(.*)" secured="true" http-method="GET, PUT,
-        POST, DELETE">
+        <Resource context="(.*)/api/users/v1/me/challenge-answers(.*)" secured="true" http-method="GET, PUT, POST, DELETE">
             <Permissions>none</Permissions>
             <Scopes>internal_login</Scopes>
         </Resource>
@@ -2303,6 +2896,10 @@
             <Permissions>/permission/admin/manage/identity/identitymgt/update</Permissions>
             <Scopes>internal_identity_mgt_update</Scopes>
         </Resource>
+        <Resource context="(.*)/api/users/v1/offline-invite-link(.*)" secured="true" http-method="POST">
+            <Permissions>/permission/admin/manage/identity/usermgt/create</Permissions>
+            <Scopes>internal_user_mgt_create</Scopes>
+        </Resource>
         <Resource context="(.*)/api/server/v1/claim-dialects(.*)" secured="true" http-method="POST">
             <Permissions>/permission/admin/manage/identity/claimmgt/metadata/create</Permissions>
             <Scopes>internal_claim_meta_create</Scopes>
@@ -2319,19 +2916,19 @@
             <Permissions>/permission/admin/manage/identity/claimmgt/metadata/delete</Permissions>
             <Scopes>internal_claim_meta_delete</Scopes>
         </Resource>
-        <Resource context="(.*)/api/server/v1/email/template-types(.*)" secured="true" http-method="GET">
+        <Resource context="(.*)/api/server/v(.*)/email/template-types(.*)" secured="true" http-method="GET">
             <Permissions>/permission/admin/manage/identity/emailmgt/view</Permissions>
             <Scopes>internal_email_mgt_view</Scopes>
         </Resource>
-        <Resource context="(.*)/api/server/v1/email/template-types(.*)" secured="true" http-method="POST">
+        <Resource context="(.*)/api/server/v(.*)/email/template-types(.*)" secured="true" http-method="POST">
             <Permissions>/permission/admin/manage/identity/emailmgt/create</Permissions>
             <Scopes>internal_email_mgt_create</Scopes>
         </Resource>
-        <Resource context="(.*)/api/server/v1/email/template-types/(.*)" secured="true" http-method="PUT">
+        <Resource context="(.*)/api/server/v(.*)/email/template-types/(.*)" secured="true" http-method="PUT">
             <Permissions>/permission/admin/manage/identity/emailmgt/update</Permissions>
             <Scopes>internal_email_mgt_update</Scopes>
         </Resource>
-        <Resource context="(.*)/api/server/v1/email/template-types/(.*)" secured="true" http-method="DELETE">
+        <Resource context="(.*)/api/server/v(.*)email/template-types/(.*)" secured="true" http-method="DELETE">
             <Permissions>/permission/admin/manage/identity/emailmgt/delete</Permissions>
             <Scopes>internal_email_mgt_delete</Scopes>
         </Resource>
@@ -2346,7 +2943,7 @@
         </Resource>
         <Resource context="(.*)/api/server/v1/applications/(.*)/owner(.*)" secured="true" http-method="PUT">
             <Permissions>/permission/admin</Permissions>
-            <Scopes>SYSTEM</Scopes>
+            <Scopes>internal_organization_admin</Scopes>
         </Resource>
         <Resource context="(.*)/api/server/v1/applications(.*)" secured="true" http-method="POST">
             <Permissions>/permission/admin/manage/identity/applicationmgt/create</Permissions>
@@ -2368,6 +2965,14 @@
             <Permissions>none</Permissions>
             <Scopes>internal_login</Scopes>
         </Resource>
+        <Resource context="(.*)/api/server/v1/admin-advisory-management/banner" secured="false" http-method="GET">
+            <Permissions>none</Permissions>
+            <Scopes>none</Scopes>
+        </Resource>
+        <Resource context="(.*)/api/server/v1/admin-advisory-management/banner" secured="true" http-method="PATCH">
+            <Permissions>/permission/admin/manage/identity/configmgt/update</Permissions>
+            <Scopes>internal_config_mgt_update</Scopes>
+        </Resource>
         <Resource context="(.*)/api/server/v1/identity-governance(.*)" secured="true" http-method="GET">
             <Permissions>/permission/admin/manage/identity/idpmgt/view</Permissions>
             <Scopes>internal_idp_view</Scopes>
@@ -2380,7 +2985,7 @@
             <Permissions>/permission/admin/manage/identity/rolemgt/view</Permissions>
             <Scopes>internal_role_mgt_view</Scopes>
         </Resource>
-        <Resource context="(.*)/api/server/v1/userstores" secured="true" http-method="POST">
+        <Resource context="(.*)/api/server/v1/userstores(.*)" secured="true" http-method="POST">
             <Permissions>/permission/admin/manage/identity/userstore/config/create</Permissions>
             <Scopes>internal_userstore_create</Scopes>
         </Resource>
@@ -2420,6 +3025,26 @@
        <Resource context="(.*)/api/users/v1/me(.*)" secured="true" http-method="GET, HEAD, POST, PUT, DELETE, PATCH">
             <Permissions>none</Permissions>
             <Scopes>internal_login</Scopes>
+        </Resource>
+        <Resource context="(.*)/api/users/v1/me/idv(.*)" secured="true" http-method="GET, POST, PUT">
+            <Permissions>none</Permissions>
+            <Scopes>internal_login</Scopes>
+        </Resource>
+        <Resource context="(.*)/api/users/v1/(.*)/idv(.*)" secured="true" http-method="GET">
+            <Permissions>/permission/admin/manage/identity/user/idv/claim/view</Permissions>
+            <Scopes>internal_idv_claim_view</Scopes>
+        </Resource>
+        <Resource context="(.*)/api/users/v1/(.*)/idv(.*)" secured="true" http-method="POST">
+            <Permissions>/permission/admin/manage/identity/user/idv/claim/add</Permissions>
+            <Scopes>internal_idv_claim_add</Scopes>
+        </Resource>
+        <Resource context="(.*)/api/users/v1/(.*)/idv(.*)" secured="true" http-method="PUT">
+            <Permissions>/permission/admin/manage/identity/user/idv/claim/update</Permissions>
+            <Scopes>internal_idv_claim_update</Scopes>
+        </Resource>
+        <Resource context="(.*)/api/users/v1/(.*)/idv/verify" secured="true" http-method="POST">
+            <Permissions>/permission/admin/manage/identity/user/idv/claim/verify</Permissions>
+            <Scopes>internal_idv_claim_verify</Scopes>
         </Resource>
         <Resource context="(.*)/api/server/v1/identity-providers(.*)" secured="true" http-method="POST">
             <Permissions>/permission/admin/manage/identity/idpmgt/create</Permissions>
@@ -2514,7 +3139,7 @@
             <Permissions>/permission/admin/manage/identity/cors/origins/view</Permissions>
             <Scopes>internal_cors_origins_view</Scopes>
         </Resource>
-        <Resource context="(.*)/api/server/v1/cors/origins/(.*)/apps" secured="true" http-method="GET">
+        <Resource context="(.*)/api/server/v1/cors/origins/(.*)" secured="true" http-method="GET">
             <Permissions>/permission/admin/manage/identity/cors/origins/view</Permissions>
             <Scopes>internal_cors_origins_view</Scopes>
         </Resource>
@@ -2525,6 +3150,127 @@
         <Resource context="(.*)/api/server/v1/configs(.*)" secured="true" http-method="GET">
             <Permissions>none</Permissions>
             <Scopes>internal_login</Scopes>
+        </Resource>
+        <Resource context="(.*)/api/server/v1/organizations/(.*)/roles" secured="true" http-method="GET">
+            <Permissions>/permission/admin/manage/identity/rolemgt/view</Permissions>
+            <Scopes>internal_role_mgt_view</Scopes>
+        </Resource>
+        <Resource context="(.*)/api/server/v1/organizations/(.*)/roles/(.*)" secured="true" http-method="GET">
+            <Permissions>/permission/admin/manage/identity/rolemgt/view</Permissions>
+            <Scopes>internal_role_mgt_view</Scopes>
+        </Resource>
+        <Resource context="(.*)/api/server/v1/organizations/(.*)/roles/(.*)" secured="true" http-method="POST">
+            <Permissions>/permission/admin/manage/identity/rolemgt/create</Permissions>
+            <Scopes>internal_role_mgt_create</Scopes>
+        </Resource>
+        <Resource context="(.*)/api/server/v1/organizations/(.*)/roles/(.*)" secured="true" http-method="PATCH">
+            <Permissions>/permission/admin/manage/identity/rolemgt/update</Permissions>
+            <Scopes>internal_role_mgt_update</Scopes>
+        </Resource>
+        <Resource context="(.*)/api/server/v1/organizations/(.*)/roles/(.*)" secured="true" http-method="PUT">
+            <Permissions>/permission/admin/manage/identity/rolemgt/update</Permissions>
+            <Scopes>internal_role_mgt_update</Scopes>
+        </Resource>
+        <Resource context="(.*)/api/server/v1/organizations/(.*)/roles/(.*)" secured="true" http-method="DELETE">
+            <Permissions>/permission/admin/manage/identity/rolemgt/delete</Permissions>
+            <Scopes>internal_role_mgt_delete</Scopes>
+        </Resource>
+        <Resource context="(.*)/api/server/v1/organizations/(.*)/share" secured="true" http-method="POST">
+            <Permissions>/permission/admin/manage/identity/applicationmgt/update</Permissions>
+            <Scopes>internal_application_mgt_update</Scopes>
+        </Resource>
+        <Resource context="(.*)/api/server/v1/organizations/discovery" secured="true" http-method="POST">
+            <Permissions>/permission/admin/manage/identity/organizationmgt/update</Permissions>
+            <Scopes>internal_organization_update</Scopes>
+        </Resource>
+        <Resource context="(.*)/api/server/v1/organizations/discovery" secured="true" http-method="GET">
+            <Permissions>/permission/admin/manage/identity/organizationmgt/view</Permissions>
+            <Scopes>internal_organization_view</Scopes>
+        </Resource>
+        <Resource context="(.*)/api/server/v1/organizations/(.*)/discovery" secured="true" http-method="GET">
+            <Permissions>/permission/admin/manage/identity/organizationmgt/view</Permissions>
+            <Scopes>internal_organization_view</Scopes>
+        </Resource>
+        <Resource context="(.*)/api/server/v1/organizations/(.*)/discovery" secured="true" http-method="PUT">
+            <Permissions>/permission/admin/manage/identity/organizationmgt/update</Permissions>
+            <Scopes>internal_organization_update</Scopes>
+        </Resource>
+        <Resource context="(.*)/api/server/v1/organizations/(.*)/discovery" secured="true" http-method="DELETE">
+            <Permissions>/permission/admin/manage/identity/organizationmgt/delete</Permissions>
+            <Scopes>internal_organization_delete</Scopes>
+        </Resource>
+        <Resource context="(.*)/api/server/v1/organizations/check-discovery" secured="true" http-method="POST">
+            <Permissions>/permission/admin/manage/identity/organizationmgt/view</Permissions>
+            <Scopes>internal_organization_view</Scopes>
+        </Resource>
+        <Resource context="(.*)/api/server/v1/organizations" secured="true" http-method="GET">
+            <Permissions>/permission/admin/manage/identity/organizationmgt/view</Permissions>
+            <Scopes>internal_organization_view</Scopes>
+        </Resource>
+        <Resource context="(.*)/api/server/v1/organizations/(.*)" secured="true" http-method="GET">
+            <Permissions>/permission/admin/manage/identity/organizationmgt/view</Permissions>
+            <Scopes>internal_organization_view</Scopes>
+        </Resource>
+        <Resource context="(.*)/api/server/v1/organizations" secured="true" http-method="POST">
+            <Permissions>/permission/admin/manage/identity/organizationmgt/create</Permissions>
+            <Scopes>internal_organization_create</Scopes>
+        </Resource>
+        <Resource context="(.*)/api/server/v1/organizations/(.*)" secured="true" http-method="PATCH">
+            <Permissions>/permission/admin/manage/identity/organizationmgt/update</Permissions>
+            <Scopes>internal_organization_update</Scopes>
+        </Resource>
+        <Resource context="(.*)/api/server/v1/organizations/(.*)" secured="true" http-method="PUT">
+            <Permissions>/permission/admin/manage/identity/organizationmgt/update</Permissions>
+            <Scopes>internal_organization_update</Scopes>
+        </Resource>
+        <Resource context="(.*)/api/server/v1/organizations/(.*)" secured="true" http-method="DELETE">
+            <Permissions>/permission/admin/manage/identity/organizationmgt/delete</Permissions>
+            <Scopes>internal_organization_delete</Scopes>
+        </Resource>
+        <Resource context="(.*)/api/server/v1/organization-configs/discovery" secured="true" http-method="GET">
+            <Permissions>/permission/admin/manage/identity/configmgt/view</Permissions>
+            <Scopes>internal_config_mgt_view</Scopes>
+        </Resource>
+        <Resource context="(.*)/api/server/v1/organization-configs/discovery" secured="true" http-method="POST">
+            <Permissions>/permission/admin/manage/identity/configmgt/add</Permissions>
+            <Scopes>internal_config_mgt_add</Scopes>
+        </Resource>
+        <Resource context="(.*)/api/server/v1/organization-configs/discovery" secured="true" http-method="DELETE">
+            <Permissions>/permission/admin/manage/identity/configmgt/delete</Permissions>
+            <Scopes>internal_config_mgt_delete</Scopes>
+        </Resource>
+        <Resource context="(.*)/api/users/v1/me/organizations/root" secured="true" http-method="GET">
+            <Permissions>none</Permissions>
+            <Scopes>internal_login</Scopes>
+        </Resource>
+        <Resource context="(.*)/api/server/v1/self-service/(.*)" secured="true" http-method="GET">
+            <Permissions>/permission/admin/manage/identity/organizationmgt/view</Permissions>
+            <Scopes>internal_organization_view</Scopes>
+        </Resource>
+        <Resource context="(.*)/api/server/v1/self-service/(.*)" secured="true" http-method="PATCH">
+            <Permissions>/permission/admin/manage/identity/organizationmgt/update</Permissions>
+            <Scopes>internal_organization_update</Scopes>
+        </Resource>
+        <Resource context="(.*)/api/server/v1/guests/invitation/accept" secured="false" http-method="POST"/>
+        <Resource context="(.*)/api/server/v1/guests/invite" secured="true" http-method="POST">
+            <Permissions>/permission/admin/manage/identity/guestmgt/user/invite/add</Permissions>
+            <Scopes>internal_guest_mgt_invite_add</Scopes>
+        </Resource>
+        <Resource context="(.*)/api/server/v1/guests/invitation/introspect" secured="true" http-method="POST">
+            <Permissions>none</Permissions>
+            <Scopes>internal_login</Scopes>
+        </Resource>
+        <Resource context="(.*)/api/server/v1/guests/invitations(.*)" secured="true" http-method="GET">
+            <Permissions>/permission/admin/manage/identity/guestmgt/user/invite/list</Permissions>
+            <Scopes>internal_guest_mgt_invite_list</Scopes>
+        </Resource>
+        <Resource context="(.*)/api/server/v1/guests/invitations/(.*)" secured="true" http-method="DELETE">
+            <Permissions>/permission/admin/manage/identity/guestmgt/user/invite/delete</Permissions>
+            <Scopes>internal_guest_mgt_invite_delete</Scopes>
+        </Resource>
+        <Resource context="(.*)/api/server/v1/organizations/check-name" secured="true" http-method="POST">
+            <Permissions>/permission/admin/manage/identity/organizationmgt/view</Permissions>
+            <Scopes>internal_organization_view</Scopes>
         </Resource>
         <Resource context="(.*)/api/server/v1/(?!(tenants|channel-verified-tenants))(.*)" secured="true" http-method="all">
             <Permissions>/permission/admin/manage/identity/</Permissions>
@@ -2575,6 +3321,8 @@
         <Resource context="(.*)/oauth2/jwks(.*)" secured="false" http-method="all"/>
         <Resource context="(.*)/oauth2/device(.*)" secured="false" http-method="all"/>
         <Resource context="(.*)/oauth2/device_authorize(.*)" secured="false" http-method="all"/>
+        <Resource context="(.*)/oauth2/par(.*)" secured="false" http-method="all"/>
+        <Resource context="(.*)/oauth2/authn(.*)" secured="false" http-method="all"/>
         <Resource context="(.*)/oidc/checksession(.*)" secured="false" http-method="all"/>
         <Resource context="(.*)/oidc/logout(.*)" secured="false" http-method="all"/>
         <Resource context="(.*)/oauth2/oidcdiscovery(.*)" secured="false" http-method="all"/>
@@ -2603,28 +3351,35 @@
         <Resource context="/duoauthenticationendpoint(.*)" secured="false" http-method="all"/>
         <Resource context="(.*)/fileupload/service(.*)" secured="true" http-method="all">
             <Permissions>/permission/admin/manage/identity/applicationmgt/create</Permissions>
+            <Scopes>internal_application_mgt_create</Scopes>
         </Resource>
         <Resource context="(.*)/fileupload/entitlement-policy(.*)" secured="true" http-method="all">
             <Permissions>/permission/admin/manage/identity/entitlement/pap/policy/create</Permissions>
+            <Scope>internal_manage_pap</Scope>
         </Resource>
         <Resource context="(.*)/fileupload/resource(.*)" secured="true" http-method="all">
             <Permissions>/permission/admin/manage</Permissions>
+            <Scopes>internal_registry_resource_upload</Scopes>
+        </Resource>
+        <Resource context="(.*)/api/idle-account-identification/v1/inactive-users(.*)" secured="true" http-method="GET">
+            <Permissions>/permission/admin/manage/identity/usermgt/list</Permissions>
+            <Scopes>internal_user_mgt_list</Scopes>
+        </Resource>
+        <Resource context="(.*)/api/server/v1/password-expired-users(.*)" secured="true" http-method="GET">
+            <Permissions>/permission/admin/manage/identity/usermgt/list</Permissions>
+            <Scopes>internal_user_mgt_list</Scopes>
         </Resource>
         <Resource context="(.*)/filedownload(.*)" secured="false" http-method="all"/>
         <Resource context="(.*)/logincontext(.*)" secured="false" http-method="all"/>
+        <Resource context="(.*)/longwaitstatus(.*)" secured="false" http-method="GET"/>
         <Resource context="(.*)/registry/resourceContent(.*)" secured="false" http-method="all"/>
         <Resource context="(.*)/registry/resource(.*)" secured="false" http-method="all"/>
         <Resource context="(.*)/registry/tags(.*)" secured="false" http-method="all"/>
         <Resource context="(.*)/registry/atom(.*)" secured="false" http-method="all"/>
         <Resource context="(.*)/tryit/JAXRSRequestXSSproxy_ajaxprocessor.jsp" secured="false" http-method="all"/>
         <Resource context="(.*)/admin/jsp/WSRequestXSSproxy_ajaxprocessor.jsp" secured="false" http-method="all"/>
-        <Resource context="(.*)/api/identity/config-mgt/v1.0/search(.*)" secured="true" http-method="GET"/>
         <Resource context="^(?!.*/t/).*/api/identity/config-mgt/v1.0/resource-type" secured="true" http-method="POST"/>
         <Resource context="^(?!.*/t/).*/api/identity/config-mgt/v1.0/resource-type" secured="true" http-method="PUT"/>
-        <Resource context="(.*)/api/identity/config-mgt/v1.0/resource-type/(.*)" secured="true" http-method="GET"/>
-        <Resource context="^(?!.*/t/).*/api/identity/config-mgt/v1.0/resource-type/(.*)" secured="true" http-method="DELETE"/>
-        <Resource context="(.*)/api/identity/config-mgt/v1.0/resource/(.*)" secured="true" http-method="POST"/>
-        <Resource context="(.*)/api/identity/config-mgt/v1.0/resource/(.*)" secured="true" http-method="PUT"/>
         <Resource context="(.*)/api/identity/config-mgt/v1.0/resource/(.*)/(.*)" secured="true" http-method="GET"/>
         <Resource context="(.*)/api/identity/config-mgt/v1.0/resource/(.*)/(.*)" secured="true" http-method="DELETE"/>
         <Resource context="(.*)/api/identity/config-mgt/v1.0/resource/(.*)/(.*)" secured="true" http-method="POST"/>
@@ -2645,14 +3400,37 @@
     </ClientAppAuthentication>
 
     <!--
+        The following section defines the endpoints that can be skipped authorization per each authentication handler.
+        If none defines for any handler, then this authorization control will be not applied for that.
+    -->
+    <AuthorizationControl>
+        {% for item,authenticator in authorization_control.skip_authorization.items() %}
+            <SkipAuthorization
+                authHandler="{{authenticator.name}}"
+                endpoints="{{authenticator.allowedEndpoints}}"
+            />
+        {% endfor %}
+    </AuthorizationControl>
+
+    <!--
     This property restricts federated user association done through UserProfileAdmin admin service.
     Would not affect associations done through provisioning
     -->
     <EnableFederatedUserAssociation>{{user.association.enable_for_federated_users}}</EnableFederatedUserAssociation>
 
-    <EnableTenantQualifiedUrls>{{tenant_context.enable_tenant_qualified_urls}}</EnableTenantQualifiedUrls>
+    <!--
+    This property restricts unnecessary user local search during federated authentication flow
+    -->
+    <SkipLocalUserSearchForAuthenticationFlowHandlers>{{authentication.skip_local_user_search_for_authentication_flow_handlers}}</SkipLocalUserSearchForAuthenticationFlowHandlers>
 
-    <EnableTenantedSessions>{{tenant_context.enable_tenanted_sessions | default(false)}}</EnableTenantedSessions>
+    <TenantContext>
+        <TenantQualifiedUrls>
+            <Enable>{{tenant_context.enable_tenant_qualified_urls}}</Enable>
+            <RequireSuperTenantInUrls>{{tenant_context.enable_tenant_qualified_urls && tenant_context.require_super_tenant_in_urls}}</RequireSuperTenantInUrls>
+            <AppendSuperTenantInCookiePath>{{tenant_context.enable_tenant_qualified_urls && tenant_context.append_super_tenant_in_cookie_path}}</AppendSuperTenantInCookiePath>
+            <EnableTenantedSessions>{{tenant_context.enable_tenant_qualified_urls && tenant_context.enable_tenanted_sessions}}</EnableTenantedSessions>
+       </TenantQualifiedUrls>
+    </TenantContext>
 
 
     <!--
@@ -2698,6 +3476,58 @@
         </OverwriteDispatch>
     </TenantContextsToRewrite>
 
+    <OrgContextsToRewrite>
+        <WebApp>
+        {% for organization_context in organization_context.rewrite %}
+        {% for base_path in organization_context.base_path %}
+            <Context>
+                <BasePath>{{base_path}}</BasePath>
+                <SubPaths>
+                {% for sub_path in organization_context.sub_paths %}
+                    <Path>{{sub_path}}</Path>
+                {% endfor %}
+                </SubPaths>
+            </Context>
+        {% endfor %}
+        {% endfor %}
+            <Context>
+                <BasePath>/api/</BasePath>
+                <SubPaths>
+                    <Path>/api/server/v1/branding-preference</Path>
+                    <Path>/api/server/v1/branding-preference/resolve</Path>
+                    <Path>/api/server/v1/branding-preference/text</Path>
+                    <Path>/api/server/v1/branding-preference/text/resolve</Path>
+                    <Path>/api/identity/auth/v1.1/data</Path>
+                    <Path>/api/users/v1/offline-invite-link</Path>
+                    <Path>/api/server/v1/validation-rules</Path>
+                </SubPaths>
+            </Context>
+            <Context>
+                <BasePath>/oauth2/</BasePath>
+            </Context>
+            <Context>
+                <BasePath>/authenticationendpoint/</BasePath>
+            </Context>
+            <Context>
+                <BasePath>/accountrecoveryendpoint/</BasePath>
+            </Context>
+        </WebApp>
+        <Servlet>
+        {% for servlet in organization_context.rewrite.servlets %}
+            <Context>{{servlet}}</Context>
+        {% endfor %}
+        {% for servlet in organization_context.rewrite.custom_servlets %}
+            <Context>{{servlet}}</Context>
+        {% endfor %}
+            <Context>/commonauth(.*)</Context>
+            <Context>/logincontext(.*)</Context>
+            <Context>/samlsso(.*)</Context>
+            <Context>/identity/metadata/saml2</Context>
+            <Context>/longwaitstatus(.*)</Context>
+            <Context>/oidc/</Context>
+        </Servlet>
+    </OrgContextsToRewrite>
+
     <!-- Server Synchronization Tolerance Configuration in seconds -->
     <ClockSkew>{{server.clock_skew}}</ClockSkew>
 
@@ -2716,6 +3546,9 @@
                 <Username>{{http_proxy.username}}</Username>
                 <Password>{{http_proxy.password}}</Password>
             </HTTPProxy>
+            <!-- Configuration for allowing users to get Previous KID value generated using SHA-1 algo from the JWKS endpoint -->
+            <AddPreviousVersionKID>{{oauth.jwks_endpoint.add_previous_version_kid}}</AddPreviousVersionKID>
+            <IsThumbprintHexifyRequired>{{oauth.jwks_endpoint.is_thumbprint_hexify_required}}</IsThumbprintHexifyRequired>
         </JWKSEndpoint>
     </JWTValidatorConfigs>
 
@@ -2741,6 +3574,22 @@
         <HTTPReadTimeout>{{authentication.adaptive.http_connections.read_timeout}}</HTTPReadTimeout>
         <HTTPConnectionRequestTimeout>{{authentication.adaptive.http_connections.request_timeout}}</HTTPConnectionRequestTimeout>
         <!--End of default configs for timeouts-->
+
+        <!--Retry counts-->
+        <HTTPRequestRetryCount>{{authentication.adaptive.http_connections.request_retry_count}}</HTTPRequestRetryCount>
+        <!--End of retry counts-->
+
+        <!--Timeouts for callChore token call and adaptive endpoint-->
+        <CallChoreo>
+          <!--Default timeout in milliseconds-->
+          <HTTPConnectionTimeout>{{authentication.adaptive.call_choreo.http_connections.connection_timeout}}</HTTPConnectionTimeout>
+          <HTTPReadTimeout>{{authentication.adaptive.call_choreo.http_connections.read_timeout}}</HTTPReadTimeout>
+          <HTTPConnectionRequestTimeout>{{authentication.adaptive.call_choreo.http_connections.request_timeout}}</HTTPConnectionRequestTimeout>
+          <!--Default retry counts-->
+          <TokenRequestRetryCount>{{authentication.adaptive.call_choreo.http_connections.token_request_retry_count}}</TokenRequestRetryCount>
+          <ChoreoAPIRequestRetryCount>{{authentication.adaptive.call_choreo.http_connections.choreo_api_request_retry_count}}</ChoreoAPIRequestRetryCount>
+        </CallChoreo>
+        <!--End of default configs for callChore timeouts and request retry counts-->
 
         <RefreshInterval>{{authentication.adaptive.long_wait.page_refresh_interval}}</RefreshInterval>
         <!--End of timeouts in milliseconds-->
@@ -2777,6 +3626,19 @@
             {% endfor %}
         </ChoreoDomains>
         {% endif %}
+
+        <!--Default configs for Choreo token endpoint-->
+        <ChoreoTokenEndpoint>{{authentication.adaptive.choreo_token_endpoint}}</ChoreoTokenEndpoint>
+
+        <!--Whether to use authenticator name or display name in authenticationOptions-->
+        <AuthenticatorNameInAuthConfig>
+            <Enable>{{authentication.adaptive.authenticator_name_in_auth_config.enable}}</Enable>
+        </AuthenticatorNameInAuthConfig>
+
+        <!--Number of statements that can be run with GraalJS script engine on one execution-->
+        <GraalJS>
+            <ScriptStatementsLimit>{{authentication.adaptive.graaljs.script_statements_limit}}</ScriptStatementsLimit>
+        </GraalJS>
     </AdaptiveAuth>
 
     <!--Intermediate certificate validation for certificate based requests-->
@@ -2798,23 +3660,59 @@
     <!--This is the separator that use to separate multiple roles in the role claim value coming from IDP side-->
     <FederatedIDPRoleClaimValueAttributeSeparator>{{federated.idp.role_claim_value_attribute_separator}}</FederatedIDPRoleClaimValueAttributeSeparator>
 
+    {% if federated.idp.group_claim_value_attribute_separator is defined %}
+    <!--This is the separator that use to separate multiple groups in the group claim value coming from IDP side-->
+    <FederatedIDPGroupClaimValueAttributeSeparator>{{federated.idp.group_claim_value_attribute_separator}}</FederatedIDPGroupClaimValueAttributeSeparator>
+    {% endif %}
+
+    {% if federated.idp.use_idp_role_claim_as_idp_group_claim is defined %}
+    <!--
+    This allows to use idp role claim uri as the idp group claim uri. This is only recommended to handle the migration
+    from idp role to local role mapping implementation to idp group to local role assignment implementation.
+    -->
+    <UseIDPRoleClaimAsIDPGroupClaim>{{federated.idp.use_idp_role_claim_as_idp_group_claim}}</UseIDPRoleClaimAsIDPGroupClaim>
+    {% endif %}
+
+     {% if system_applications.fidp_role_based_authz_enabled_apps is defined %}
+     <!-- Following applications can use federated user role based authorization -->
+     <FIdPRoleBasedAuthzApplications>
+         {% for application in system_applications.fidp_role_based_authz_enabled_apps %}
+         <AppName>{{application}}</AppName>
+         {% endfor %}
+     </FIdPRoleBasedAuthzApplications>
+     {% endif %}
+
     <!--This configuration is used for X509 Certificate based authentication. -->
 
-    {% if x509.request_header_name is defined and x509.request_header_name|length %}
     <X509>
         <!--During ssl termination at LB, the X509 certificate is passed over the HTTP header. This configuration
         provides the facility to configure HTTP request header name which is configured at LB.  -->
+        {% if x509.request_header_name is defined and x509.request_header_name|length %}
         <X509RequestHeaderName>{{x509.request_header_name}}</X509RequestHeaderName>
+        {% endif %}
+        {% if x509.crl_download_timeout is defined and x509.crl_download_timeout|length %}
+        <CRLDownloadTimeout>{{x509.crl_download_timeout}}</CRLDownloadTimeout>
+        {% endif %}
     </X509>
-    {% endif %}
 
     <!-- This configuration specifies the claims that should be logged to "audit.log" upon changes. -->
-    {% if audit.log.loggable_user_claim|length %}
-    <LoggableUserClaims>
-        {% for claim in audit.log.loggable_user_claim %}
-        <LoggableUserClaim>{{claim}}</LoggableUserClaim>
-        {% endfor %}
-    </LoggableUserClaims>
+    {% if audit.log.loggable_user_claim is defined %}
+        {% if audit.log.loggable_user_claim.claims is defined %}
+            <LoggableUserClaims>
+                {% for claim in audit.log.loggable_user_claim.claims %}
+                    <LoggableUserClaim>{{ claim }}</LoggableUserClaim>
+                {% endfor %}
+            </LoggableUserClaims>
+        {% endif %}
+        {% if audit.log.loggable_user_claim|length > 0 %}
+            <LoggableUserClaims>
+                {% for key, value in audit.log.loggable_user_claim.items() %}
+                    {% if key != 'claims' %}
+                        <LoggableUserClaim>{{ value }}</LoggableUserClaim>
+                    {% endif %}
+                {% endfor %}
+            </LoggableUserClaims>
+        {% endif %}
     {% endif %}
 
      <!-- This configuration specifies enabling contextual param for audit logs. -->
@@ -2837,9 +3735,12 @@
         <WebAuthn>
             <Enable>{{fido.webauthn.enable}}</Enable>
         </WebAuthn>
+        <EnablePasskeyProgressiveEnrollment>{{fido.enable_passkey_progressive_enrollment}}</EnablePasskeyProgressiveEnrollment>
+        <EnableUsernamelessAuthentication>{{fido.enable_usernameless_authentication}}</EnableUsernamelessAuthentication>
         <FIDO2TrustedOrigins>
+            <Origin>${carbon.protocol}://${carbon.host}:${carbon.management.port}</Origin>
             {% for origin in fido.trusted.origins %}
-                <Origin>{{origin}}</Origin>
+            <Origin>{{origin}}</Origin>
             {% endfor %}
         </FIDO2TrustedOrigins>
 
@@ -2884,6 +3785,14 @@
     </AllowedUserstores>
     {% endif %}
 
+    {% if user_store_mgt.reserved_user_stores is defined %}
+    <ReservedUserstores>
+        {% for reserved_user_store in user_store_mgt.reserved_user_stores %}
+        <ReservedUserstore>{{reserved_user_store}}</ReservedUserstore>
+        {% endfor %}
+    </ReservedUserstores>
+    {% endif %}
+
     <!-- System Applications -->
     {% if system_applications.read_only_apps is defined %}
     <SystemApplications>
@@ -2891,6 +3800,15 @@
         <ApplicationName>{{application}}</ApplicationName>
         {% endfor %}
     </SystemApplications>
+    {% endif %}
+
+    <!-- Default Applications -->
+    {% if system_applications.default_apps is defined %}
+    <DefaultApplications>
+        {% for application in system_applications.default_apps %}
+        <ApplicationName>{{application}}</ApplicationName>
+        {% endfor %}
+    </DefaultApplications>
     {% endif %}
 
     <!-- System Roles -->
@@ -2992,6 +3910,9 @@
         {% if common_auth_caller_path.default_url is defined %}
         <DefaultUrl>{{common_auth_caller_path.default_url}}</DefaultUrl>
         {% endif %}
+        {% if common_auth_caller_path.enable_fallback_to_default_on_no_return_url is defined %}
+        <EnableFallbackToDefaultOnNoReturnUrl>{{common_auth_caller_path.enable_fallback_to_default_on_no_return_url}}</EnableFallbackToDefaultOnNoReturnUrl>
+        {% endif %}
     </CommonAuthCallerPath>
 
     <!-- Cookies to invalidate during authentication flow failures. -->
@@ -3016,11 +3937,11 @@
     <UseLegacyLocalizationClaim>false</UseLegacyLocalizationClaim>
     {% endif %}
 
-    <!-- Configuration for allowing users to introspect tokens from other tenants. -->
-    <AllowCrossTenantTokenIntrospection>{{oauth.allow_cross_tenant_token_introspection}}</AllowCrossTenantTokenIntrospection>
-
     <!-- Configuration to enable or disable claim filtering based on scope. -->
     <EnableScopeBasedClaimFiltering>{{authentication.enable_scope_based_claim_filtering}}</EnableScopeBasedClaimFiltering>
+
+    <!-- Configuration to allow only SP requested claims during federated flow. -->
+    <AllowSPRequestedFedClaimsOnly>{{authentication.allow_sp_requested_fed_claims_only}}</AllowSPRequestedFedClaimsOnly>
 
     {% if stored_procedure_dao is defined %}
     <!-- Stored Procedure supported DAO Implementation of Identity components.
@@ -3047,5 +3968,135 @@
             </MethodRefs>
         </AuthenticationContext>
     {% endif %}
+
+    <!-- Configuration to show the pending user information during the authentication failure attempts. -->
+    {% if show_pending_user_information is defined %}
+    <ShowPendingUserInformation>{{show_pending_user_information.enable}}</ShowPendingUserInformation>
+    {% endif %}
+
+    {% if email_templates.branding.organization is defined %}
+    <!-- Configuration to enable the organization level branding of email templates. -->
+    <EnableOrganizationLevelEmailBranding>{{email_templates.branding.organization.enable}}</EnableOrganizationLevelEmailBranding>
+    {% endif %}
+
+    <!-- Configuration to set up fallback configs for organization level branding configs   -->
+    <!-- to be used in the case where branding configs are not defined by the tenant users. -->
+    <OrganizationLevelEmailBrandingFallbacks>
+        {% for key,value in email_templates.branding.fallbacks.items() %}
+            <OrganizationLevelEmailBrandingFallback key="{{key}}">{{value}}</OrganizationLevelEmailBrandingFallback>
+        {% endfor %}
+    </OrganizationLevelEmailBrandingFallbacks>
+
+    <!-- Configuration to enable SHA256 in IdentityUtil-->
+    <IdentityUtil>
+        <EnableSHA256>{{identity_util.enable_sha256}}</EnableSHA256>
+    </IdentityUtil>
+
+    <CertThumbprint>
+        <EnableSHA256>{{cert_thumbprint.enable_sha256}}</EnableSHA256>
+    </CertThumbprint>
+
+    <!--
+        These configurations are deprecated from this file and moved to organization-mgt.xml file.
+        The configuration reading will happen from the organization-mgt.xml file and the deployment.toml
+        configurations will remain the same.
+    -->
+    <OrganizationUserInvitation>
+        <DefaultExpiryTime>{{organization.user.invitation.default.expiry_time}}</DefaultExpiryTime>
+        <PrimaryUserDomain>{{organization.user.invitation.primary.user_domain}}</PrimaryUserDomain>
+        <DefaultAcceptURL>{{organization.user.invitation.default.accept_url}}</DefaultAcceptURL>
+        <AssociationWaitTime>{{organization.user.invitation.association.wait_time}}</AssociationWaitTime>
+    </OrganizationUserInvitation>
+
+    <!-- Extension management service configurations -->
+    <ExtensionManagementService>
+        <ExtensionTypes>{{extension_mgt.extension_types}}</ExtensionTypes>
+    </ExtensionManagementService>
+
+    <!-- IdentityDataStore configurations -->
+    <IdentityDataStore>
+        <DataStoreType>{{identity_datastore.datastore_type}}</DataStoreType>
+    </IdentityDataStore>
+
+    <UserProfileExport>
+        <AdditionalClaims>
+            {% for item in user_profile_export.additional_claims %}
+            <AdditionalClaim>{{item}}</AdditionalClaim>
+            {% endfor %}
+        </AdditionalClaims>
+        <RestrictedClaims>
+            {% for item in user_profile_export.restricted_claims %}
+            <RestrictedClaim>{{item}}</RestrictedClaim>
+            {% endfor %}
+        </RestrictedClaims>
+    </UserProfileExport>
+
+    <EnableBasicAuthHandler>{{authentication.enable_basic_auth_handler}}</EnableBasicAuthHandler>
+    {% if input_validation.username is defined %}
+    <InputValidation>
+        <Username>
+       		<Enabled>{{ input_validation.username.enable }}</Enabled>
+        </Username>
+    </InputValidation>
+    {% endif %}
+
+    <!-- Console Application configurations -->
+    <Console>
+        <CallbackURL>{{console.callback_url}}</CallbackURL>
+        <AccessURL>{{console.access_url}}</AccessURL>
+        <AppBaseName>{{console.app_base_name}}</AppBaseName>
+        <Origin>{{console.origin}}</Origin>
+    </Console>
+
+    <!-- MyAccount Application configurations -->
+    <MyAccount>
+        <CallbackURL>{{myaccount.callback_url}}</CallbackURL>
+        <AccessURL>{{myaccount.access_url}}</AccessURL>
+        <AppBaseName>{{myaccount.app_base_name}}</AppBaseName>
+        <Origin>{{myaccount.origin}}</Origin>
+    </MyAccount>
+
+    <!-- Configuration settings for the API responses. -->
+    <APIResponse>
+        <!-- When set to true, this enables sending a specific authentication failure message in the API response
+         when an account is locked. -->
+        <SetAccountLockAuthFailureReason>{{api_response.set_account_lock_auth_failure_reason}}</SetAccountLockAuthFailureReason>
+    </APIResponse>
+
+    <SuperTenantAliasInPublicUrl>{{super_tenant.alias_in_public_url}}</SuperTenantAliasInPublicUrl>
+
+    {% if legacy_claims.allow_legacy_role_claim_behaviour is defined %}
+    <!-- Config to allow legacy roles claim behaviors -->
+    <AllowLegacyRoleClaimBehaviour>{{legacy_claims.allow_legacy_role_claim_behaviour}}</AllowLegacyRoleClaimBehaviour>
+    {% endif %}
+
+    {% if cache_invalidator.mb.enabled is defined %}
+    <CacheInvalidator>
+        <MB>
+            <Enabled>{{cache_invalidator.mb.enabled}}</Enabled>
+            <Type>{{cache_invalidator.mb.broker_type}}</Type>
+            <InitialNamingFactory>{{cache_invalidator.mb.initial_naming_factory}}</InitialNamingFactory>
+            <ProviderURL>{{cache_invalidator.mb.provider_url}}</ProviderURL>
+            <TopicName>{{cache_invalidator.mb.topic_name}}</TopicName>
+            <ProducerName>{{cache_invalidator.mb.producer_name}}</ProducerName>
+            <Username>{{cache_invalidator.mb.username}}</Username>
+            <Password>{{cache_invalidator.mb.password}}</Password>
+            <HybridMode>{{cache_invalidator.mb.hybrid_mode_enabled}}</HybridMode>
+        </MB>
+        {% for cache_manager in cache_invalidator.sync_block_list.cache_manager %}
+        <CacheManager name="{{cache_manager.name}}">
+            {% for cache_name in cache_manager.list %}
+            <Cache name="{{cache_name}}"/>
+            {% endfor %}
+        </CacheManager>
+        {% endfor %}
+    </CacheInvalidator>
+    {% endif %}
+
+    <OnDemandConfig>
+        <OnInitialUse>
+            <EnableSMSOTPPasswordRecoveryIfConnectorEnabled>{{on_demand_config.on_initial_use.enable_sms_otp_password_recovery_if_connector_enabled}}</EnableSMSOTPPasswordRecoveryIfConnectorEnabled>
+        </OnInitialUse>
+    </OnDemandConfig>
 
 </Server>

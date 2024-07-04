@@ -1,7 +1,7 @@
 /*
- * Copyright (c) 2014, WSO2 Inc. (http://www.wso2.org) All Rights Reserved.
+ * Copyright (c) 2014-2023, WSO2 LLC. (http://www.wso2.com).
  *
- * WSO2 Inc. licenses this file to you under the Apache License,
+ * WSO2 LLC. licenses this file to you under the Apache License,
  * Version 2.0 (the "License"); you may not use this file except
  * in compliance with the License.
  * You may obtain a copy of the License at
@@ -20,7 +20,10 @@ package org.wso2.carbon.identity.application.mgt.dao;
 
 import org.apache.commons.lang.NotImplementedException;
 import org.wso2.carbon.identity.application.common.IdentityApplicationManagementException;
+import org.wso2.carbon.identity.application.common.IdentityApplicationManagementServerException;
 import org.wso2.carbon.identity.application.common.model.ApplicationBasicInfo;
+import org.wso2.carbon.identity.application.common.model.LocalAndOutboundAuthenticationConfig;
+import org.wso2.carbon.identity.application.common.model.RoleV2;
 import org.wso2.carbon.identity.application.common.model.ServiceProvider;
 
 import java.sql.Connection;
@@ -49,9 +52,12 @@ public interface ApplicationDAO {
             throws IdentityApplicationManagementException;
 
     /**
-     * @param applicationId
-     * @return
-     * @throws IdentityApplicationManagementException
+     * Get service provider when the application resides in the same tenant of the request initiated.
+     *
+     * @param applicationId The application id.
+     * @return Service provider.
+     * @throws IdentityApplicationManagementException throws when an error occurs in retrieving service provider with
+     *                                                all the configurations.
      */
     ServiceProvider getApplication(int applicationId) throws IdentityApplicationManagementException;
 
@@ -99,6 +105,44 @@ public interface ApplicationDAO {
      * @throws IdentityApplicationManagementException
      */
     String getServiceProviderNameByClientId(String clientId, String clientType, String tenantDomain)
+            throws IdentityApplicationManagementException;
+
+    /**
+     * Retrieve application resource id using the inboundKey and inboundType.
+     *
+     * @param inboundKey   inboundKey
+     * @param inboundType  inboundType
+     * @param tenantDomain tenantDomain
+     * @return application resourceId
+     * @throws IdentityApplicationManagementException IdentityApplicationManagementException
+     */
+    default String getApplicationResourceIDByInboundKey(String inboundKey, String inboundType, String tenantDomain)
+            throws IdentityApplicationManagementException {
+
+            return null;
+    }
+
+    /**
+     * Get authenticators configured for an application.
+     *
+     * @param applicationId ID of an application.
+     * @return Authentication configurations.
+     * @throws IdentityApplicationManagementException
+     * @deprecated use {@link #getConfiguredAuthenticators(String, String)} instead.
+     */
+    @Deprecated
+    LocalAndOutboundAuthenticationConfig getConfiguredAuthenticators(String applicationId)
+            throws IdentityApplicationManagementException;
+
+    /**
+     * Get authenticators configured for an application.
+     *
+     * @param applicationId ID of an application.
+     * @param tenantDomain  Tenant Domain.
+     * @return Authentication configurations.
+     * @throws IdentityApplicationManagementException
+     */
+    LocalAndOutboundAuthenticationConfig getConfiguredAuthenticators(String applicationId, String tenantDomain)
             throws IdentityApplicationManagementException;
 
     /**
@@ -156,12 +200,26 @@ public interface ApplicationDAO {
     }
 
     /**
+     * Retrieve application basic information using the sp metadata property key and value.
+     *
+     * @param key Name of the sp metadata property key
+     * @param value Value of the sp metadata property
+     * @return ApplicationBasicInfo containing the basic app information
+     * @throws IdentityApplicationManagementException if building {@link ApplicationBasicInfo} fails.
+     */
+    default ApplicationBasicInfo[] getApplicationBasicInfoBySPProperty(String key, String value)
+            throws IdentityApplicationManagementException {
+
+        return null;
+    }
+
+    /**
      * Retrieve application basic information using the application name.
      *
      * @param name          Name of the application
      * @param tenantDomain  Tenant domain of the application
      * @return ApplicationBasicInfo containing the basic app information
-     * @throws IdentityApplicationManagementException
+     * @throws IdentityApplicationManagementException if building {@link ApplicationBasicInfo} fails.
      */
     default ApplicationBasicInfo getApplicationBasicInfoByName(String name, String tenantDomain)
             throws IdentityApplicationManagementException {
@@ -279,5 +337,85 @@ public interface ApplicationDAO {
             throws IdentityApplicationManagementException {
 
         return false;
+    }
+
+    /**
+     * Method that returns service provider with required attributes.
+     *
+     * @param applicationId       Application identifier.
+     * @param requiredAttributes  List of required attributes.
+     * @return  ServiceProvider with required attributes added.
+     * @throws IdentityApplicationManagementException   Error when obtaining Sp with required attributes.
+     */
+    default ServiceProvider getApplicationWithRequiredAttributes(int applicationId, List<String> requiredAttributes)
+            throws IdentityApplicationManagementException {
+
+        return new ServiceProvider();
+    }
+
+    /**
+     * Method that return the application id of the main application for a given shared application id.
+     *
+     * @param sharedAppId Shared application id.
+     * @return Application id of the main application.
+     * @throws IdentityApplicationManagementServerException Error when obtaining main application id.
+     */
+    default String getMainAppId(String sharedAppId) throws IdentityApplicationManagementServerException {
+
+        throw new NotImplementedException();
+    }
+
+    /**
+     * Method that returns the tenant id of the application.
+     *
+     * @param applicationId Application id.
+     * @return Tenant id of the application.
+     * @throws IdentityApplicationManagementServerException Error when obtaining tenant id.
+     */
+    default int getTenantIdByApp(String applicationId) throws IdentityApplicationManagementServerException {
+
+        throw new NotImplementedException();
+    }
+
+    /**
+     * Method that returns the SP property value by property key.
+     *
+     * @param applicationId Application UUID.
+     * @param propertyName Property key.
+     * @param tenantDomain Tenant domain.
+     * @return Property value.
+     * @throws IdentityApplicationManagementException Error when retrieving SP property value.
+     */
+    default String getSPPropertyValueByPropertyKey(String applicationId, String propertyName, String tenantDomain)
+            throws IdentityApplicationManagementException {
+
+        throw new NotImplementedException();
+    }
+
+    /**
+     * Method that returns the associated roles of the application.
+     *
+     * @param applicationId Application UUID.
+     * @param tenantDomain  Tenant domain.
+     * @return List of associated roles.
+     * @throws IdentityApplicationManagementException Error when retrieving associated roles.
+     */
+    default List<RoleV2> getAssociatedRolesOfApplication(String applicationId, String tenantDomain)
+            throws IdentityApplicationManagementException {
+
+        throw new NotImplementedException();
+    }
+
+    /**
+     * Create an association between a role and an application.
+     *
+     * @param applicationUUID Application UUID.
+     * @param roleId          Role ID.
+     * @throws IdentityApplicationManagementException if an error occurs while adding role to application.
+     */
+    default void addAssociatedRoleToApplication(String applicationUUID, String roleId)
+            throws IdentityApplicationManagementException {
+
+        throw new NotImplementedException();
     }
 }

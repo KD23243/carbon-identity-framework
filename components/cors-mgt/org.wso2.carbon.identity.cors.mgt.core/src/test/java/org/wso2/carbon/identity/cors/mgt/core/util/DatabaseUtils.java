@@ -19,6 +19,7 @@
 package org.wso2.carbon.identity.cors.mgt.core.util;
 
 import org.apache.commons.dbcp.BasicDataSource;
+import org.mockito.MockedStatic;
 import org.wso2.carbon.identity.core.util.IdentityDatabaseUtil;
 
 import java.sql.Connection;
@@ -28,12 +29,11 @@ import java.util.Map;
 
 import javax.sql.DataSource;
 
-import static org.mockito.Matchers.any;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.when;
-import static org.powermock.api.mockito.PowerMockito.mockStatic;
 
 /**
  * Utility class for database functions.
@@ -83,17 +83,18 @@ public class DatabaseUtils {
         }
     }
 
-    public static Connection createDataSource() throws SQLException {
+    public static Connection createDataSource(MockedStatic<IdentityDatabaseUtil> identityDatabaseUtil)
+            throws SQLException {
 
         DataSource dataSource = mock(DataSource.class);
-        mockStatic(IdentityDatabaseUtil.class);
-        when(IdentityDatabaseUtil.getDataSource()).thenReturn(dataSource);
+        identityDatabaseUtil.when(IdentityDatabaseUtil::getDataSource).thenReturn(dataSource);
 
         Connection connection = getConnection();
         Connection spyConnection = spyConnection(connection);
         when(dataSource.getConnection()).thenReturn(spyConnection);
 
-        when(IdentityDatabaseUtil.getDBConnection(any(Boolean.class))).thenReturn(spyConnection);
+        identityDatabaseUtil.when(() -> IdentityDatabaseUtil.getDBConnection(any(Boolean.class)))
+                .thenReturn(spyConnection);
 
         return connection;
     }

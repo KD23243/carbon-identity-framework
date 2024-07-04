@@ -21,10 +21,9 @@ package org.wso2.carbon.identity.core.dao;
 import org.apache.commons.codec.binary.Base64;
 import org.apache.commons.lang.StringUtils;
 import org.mockito.ArgumentCaptor;
+import org.mockito.MockedStatic;
 import org.mockito.invocation.InvocationOnMock;
 import org.mockito.stubbing.Answer;
-import org.powermock.core.classloader.annotations.PrepareForTest;
-import org.powermock.modules.testng.PowerMockTestCase;
 import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.DataProvider;
@@ -51,15 +50,15 @@ import java.util.List;
 import java.util.Map;
 import java.util.Properties;
 
-import static org.mockito.Matchers.any;
-import static org.mockito.Matchers.anyInt;
-import static org.mockito.Matchers.eq;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.verify;
-import static org.powermock.api.mockito.PowerMockito.doAnswer;
-import static org.powermock.api.mockito.PowerMockito.mockStatic;
-import static org.powermock.api.mockito.PowerMockito.when;
+import static org.mockito.Mockito.when;
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertFalse;
 import static org.testng.Assert.assertTrue;
@@ -68,8 +67,7 @@ import static org.testng.Assert.fail;
 /**
  * Test class for SAMLSSOServiceProviderDAO.
  */
-@PrepareForTest({Transaction.class, IdentityTenantUtil.class})
-public class SAMLSSOServiceProviderDAOTest extends PowerMockTestCase {
+public class SAMLSSOServiceProviderDAOTest {
 
     private SAMLSSOServiceProviderDAO objUnderTest;
     private boolean transactionStarted = false;
@@ -79,12 +77,15 @@ public class SAMLSSOServiceProviderDAOTest extends PowerMockTestCase {
     private Map<String, List<String>> dummyBasicProperties;
     private Map<String, List<String>> dummyAdvProperties;
     private Map<String, List<String>> dummyPropertiesWithAnIssuerQualifier;
+    private MockedStatic<Transaction> transaction;
+
 
     @BeforeMethod
     public void setUp() throws Exception {
-        mockStatic(Transaction.class);
+
+        transaction = mockStatic(Transaction.class);
         mockRegistry = mock(UserRegistry.class);
-        when(Transaction.isStarted()).thenReturn(transactionStarted);
+        transaction.when(Transaction::isStarted).thenReturn(transactionStarted);
         //Mock commit transaction
         doAnswer(new Answer<Object>() {
             @Override
@@ -186,6 +187,7 @@ public class SAMLSSOServiceProviderDAOTest extends PowerMockTestCase {
 
     @AfterMethod
     public void tearDown() throws Exception {
+        transaction.close();
     }
 
     @DataProvider(name = "ResourceToObjectData")
@@ -221,7 +223,7 @@ public class SAMLSSOServiceProviderDAOTest extends PowerMockTestCase {
                 PROP_SAML_SSO_ISSUER_QUALIFIER), "Issuer Qualifier Value Mismatch");
         String sigAlg = dummyResource.getProperty(IdentityRegistryResources.PROP_SAML_SSO_SIGNING_ALGORITHM);
         if (StringUtils.isBlank(sigAlg)) {
-            sigAlg = IdentityCoreConstants.XML_SIGNATURE_ALGORITHM_RSA_SHA1_URI;
+            sigAlg = IdentityCoreConstants.XML_SIGNATURE_ALGORITHM_RSA_SHA256_URI;
         }
 
         assertEquals(serviceProviderDO.getSigningAlgorithmUri(), sigAlg, "Sign algorithm mismatch");
@@ -238,7 +240,7 @@ public class SAMLSSOServiceProviderDAOTest extends PowerMockTestCase {
 
         String digestAlg = dummyResource.getProperty(IdentityRegistryResources.PROP_SAML_SSO_DIGEST_ALGORITHM);
         if (StringUtils.isBlank(digestAlg)) {
-            digestAlg = IdentityCoreConstants.XML_DIGEST_ALGORITHM_SHA1;
+            digestAlg = IdentityCoreConstants.XML_DIGEST_ALGORITHM_SHA256;
         }
         assertEquals(serviceProviderDO.getDigestAlgorithmUri(), digestAlg, "Digest algorithm mismatch");
 
@@ -370,6 +372,35 @@ public class SAMLSSOServiceProviderDAOTest extends PowerMockTestCase {
         objUnderTest.addServiceProvider(serviceProviderDO);
     }
 
+    @Test(dataProvider = "ResourceToObjectData")
+    public void testUpdateServiceProvider(Object paramMapObj) throws Exception {
+        Properties properties = new Properties();
+        properties.putAll((Map<?, ?>) paramMapObj);
+        Resource dummyResource = new ResourceImpl();
+        dummyResource.setProperties(properties);
+        SAMLSSOServiceProviderDO serviceProviderDO = objUnderTest.resourceToObject(dummyResource);
+        ArgumentCaptor<String> captor = ArgumentCaptor.forClass(String.class);
+        String existingIssuer = dummyResource.getProperty(IdentityRegistryResources.PROP_SAML_SSO_ISSUER);
+        if (StringUtils.isNotBlank(serviceProviderDO.getIssuerQualifier())) {
+            existingIssuer = dummyResource.getProperty(IdentityRegistryResources.PROP_SAML_SSO_ISSUER)
+                    + IdentityRegistryResources.QUALIFIER_ID + dummyResource.getProperty(IdentityRegistryResources.
+                    PROP_SAML_SSO_ISSUER_QUALIFIER);
+        }
+        String expectedPath = getPath(existingIssuer);
+        when(mockRegistry.resourceExists(expectedPath)).thenReturn(true);
+        objUnderTest.updateServiceProvider(serviceProviderDO, existingIssuer);
+        verify(mockRegistry).put(captor.capture(), any(Resource.class));
+        assertEquals(captor.getValue(), expectedPath, "Resource is not added at correct path");
+    }
+
+    @Test
+    public void testUpdatingServiceProviderExistingIssuer() throws Exception {
+        SAMLSSOServiceProviderDO serviceProviderDO = new SAMLSSOServiceProviderDO();
+        serviceProviderDO.setIssuer("newIssuer");
+        when(mockRegistry.resourceExists(getPath("newIssuer"))).thenReturn(true);
+        assertFalse(objUnderTest.updateServiceProvider(serviceProviderDO, "existingIssuer"), "Resource should not have updated.");
+    }
+
     @Test
     public void testGetServiceProviders() throws Exception {
         when(mockRegistry.resourceExists(IdentityRegistryResources.SAML_SSO_SERVICE_PROVIDERS)).thenReturn(true);
@@ -429,25 +460,28 @@ public class SAMLSSOServiceProviderDAOTest extends PowerMockTestCase {
 
     @Test
     public void testGetServiceProvider() throws Exception {
-        mockStatic(IdentityTenantUtil.class);
-        RealmService mockRealmService = mock(RealmService.class);
-        TenantManager mockTenantManager = mock(TenantManager.class);
-        when(IdentityTenantUtil.getRealmService()).thenReturn(mockRealmService);
-        when(mockRealmService.getTenantManager()).thenReturn(mockTenantManager);
-        when(mockTenantManager.getDomain(anyInt())).thenReturn("test.com");
 
-        Properties dummyResourceProperties = new Properties();
-        dummyResourceProperties.putAll(dummyBasicProperties);
-        Resource dummyResource = new ResourceImpl();
-        dummyResource.setProperties(dummyResourceProperties);
+        try (MockedStatic<IdentityTenantUtil> identityTenantUtil = mockStatic(IdentityTenantUtil.class)) {
+            RealmService mockRealmService = mock(RealmService.class);
+            TenantManager mockTenantManager = mock(TenantManager.class);
+            identityTenantUtil.when(IdentityTenantUtil::getRealmService).thenReturn(mockRealmService);
+            when(mockRealmService.getTenantManager()).thenReturn(mockTenantManager);
+            when(mockTenantManager.getDomain(anyInt())).thenReturn("test.com");
 
-        String path = getPath(dummyResource.getProperty(IdentityRegistryResources.PROP_SAML_SSO_ISSUER));
-        when(mockRegistry.resourceExists(path)).thenReturn(true);
-        when(mockRegistry.get(path)).thenReturn(dummyResource);
+            Properties dummyResourceProperties = new Properties();
+            dummyResourceProperties.putAll(dummyBasicProperties);
+            Resource dummyResource = new ResourceImpl();
+            dummyResource.setProperties(dummyResourceProperties);
 
-        SAMLSSOServiceProviderDO serviceProviderDO = objUnderTest.getServiceProvider(dummyResource.getProperty
-                (IdentityRegistryResources.PROP_SAML_SSO_ISSUER));
-        assertEquals(serviceProviderDO.getTenantDomain(), "test.com", "Retrieved resource's tenant domain mismatch");
+            String path = getPath(dummyResource.getProperty(IdentityRegistryResources.PROP_SAML_SSO_ISSUER));
+            when(mockRegistry.resourceExists(path)).thenReturn(true);
+            when(mockRegistry.get(path)).thenReturn(dummyResource);
+
+            SAMLSSOServiceProviderDO serviceProviderDO = objUnderTest.getServiceProvider(dummyResource.getProperty
+                    (IdentityRegistryResources.PROP_SAML_SSO_ISSUER));
+            assertEquals(serviceProviderDO.getTenantDomain(), "test.com",
+                    "Retrieved resource's tenant domain mismatch");
+        }
     }
 
     @Test

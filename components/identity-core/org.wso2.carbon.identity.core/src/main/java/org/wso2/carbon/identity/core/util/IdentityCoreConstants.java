@@ -35,14 +35,19 @@ public class IdentityCoreConstants {
     public static final String PORTS_OFFSET = "Ports.Offset";
 
     public static final String TENANT_NAME_FROM_CONTEXT = "TenantNameFromContext";
-    public static final String ENABLE_TENANT_QUALIFIED_URLS = "EnableTenantQualifiedUrls";
-    public static final String ENABLE_TENANTED_SESSIONS = "EnableTenantedSessions";
+    public static final String ENABLE_TENANT_QUALIFIED_URLS = "TenantContext.TenantQualifiedUrls.Enable";
+    public static final String REQUIRED_SUPER_TENANT_IN_URLS =
+            "TenantContext.TenantQualifiedUrls.RequireSuperTenantInUrls";
+    public static final String APPEND_SUPER_TENANT_IN_COOKIE_PATH =
+            "TenantContext.TenantQualifiedUrls.AppendSuperTenantInCookiePath";
+    public static final String ENABLE_TENANTED_SESSIONS = "TenantContext.TenantQualifiedUrls.EnableTenantedSessions";
     public static final String PROXY_CONTEXT_PATH = "ProxyContextPath";
     public static final int DEFAULT_HTTPS_PORT = 443;
     public static final String UTF_8 = "UTF-8";
     public static final String UTC = "UTC";
     public static final int EVENT_LISTENER_ORDER_ID = -1;
     public static final String ENABLE_LEGACY_SAAS_AUTHENTICATION = "EnableLegacySaaSAuthentication";
+    public static final String SUPER_TENANT_ALIAS_IN_PUBLIC_URL = "SuperTenantAliasInPublicUrl";
 
     public static final String CASE_INSENSITIVE_USERNAME = "CaseInsensitiveUsername";
     public static final String USE_CASE_SENSITIVE_USERNAME_FOR_CACHE_KEYS = "UseCaseSensitiveUsernameForCacheKeys";
@@ -50,9 +55,18 @@ public class IdentityCoreConstants {
     public static final String EXISTING_USER = "UserAlreadyExisting";
     public final static String MULTI_ATTRIBUTE_SEPARATOR = "MultiAttributeSeparator";
     public final static String MULTI_ATTRIBUTE_SEPARATOR_DEFAULT = ",,,";
+    public final static String ORG_WISE_MULTI_ATTRIBUTE_SEPARATOR_ENABLED =
+            "OrgWiseMultiAttributeSeparator";
+    public final static String ORG_WISE_MULTI_ATTRIBUTE_SEPARATOR_RESOURCE_TYPE =
+            "ATTRIBUTE_CONFIGURATION";
+    public final static String ORG_WISE_MULTI_ATTRIBUTE_SEPARATOR_RESOURCE_NAME =
+            "multi-attribute";
+    public final static String ORG_WISE_MULTI_ATTRIBUTE_SEPARATOR_ATTRIBUTE_NAME =
+            "MultiAttributeSeparator";
 
-    public static final String XML_SIGNATURE_ALGORITHM_RSA_SHA1_URI = "http://www.w3.org/2000/09/xmldsig#rsa-sha1";
-    public static final String XML_DIGEST_ALGORITHM_SHA1 = "http://www.w3.org/2000/09/xmldsig#sha1";
+    public static final String XML_SIGNATURE_ALGORITHM_RSA_SHA256_URI = "http://www.w3.org/2001/04/xmldsig-more#rsa" +
+            "-sha256";
+    public static final String XML_DIGEST_ALGORITHM_SHA256 = "http://www.w3.org/2001/04/xmlenc#sha256";
     public static final String XML_ASSERTION_ENCRYPTION_ALGORITHM_AES256 = "http://www.w3.org/2001/04/xmlenc#aes256-cbc";
     public static final String XML_KEY_ENCRYPTION_ALGORITHM_RSAOAEP = "http://www.w3.org/2001/04/xmlenc#rsa-oaep-mgf1p";
 
@@ -89,6 +103,9 @@ public class IdentityCoreConstants {
     public static final String DB2 = "DB2";
     public static final String MICROSOFT = "Microsoft";
     public static final String S_MICROSOFT = "microsoft";
+
+    // SCIM2 constants.
+    public static final String SCIM2_USER_MAX_ITEMS_PER_PAGE_ENABLED = "SCIM2.UserEndpointMaxItemsPerPageEnabled";
 
     public static class Filter {
 

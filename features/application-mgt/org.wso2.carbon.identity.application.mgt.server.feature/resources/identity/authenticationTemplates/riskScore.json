@@ -1,7 +1,7 @@
 {
-  "category": "analytics_based",
-  "name": "Risk-Based",
-  "title": "Risk-Based 2FA Template",
+  "category": "AdaptiveMFA",
+  "name": "[Deprecated] Risk-Based",
+  "title": "Risk-Based 2FA Template [Deprecated]",
   "summary": "Define conditional authentication by risk score value calculated from analytics engine.",
   "preRequisites": [
     "Change the siddhiApplication and siddhiInputStream according to the Siddhi application you have deployed in the Stream Processor.",
@@ -30,8 +30,10 @@
       "federated": []
     }
   },
-  "helpLink": "https://docs.wso2.com/display/IS570/Configuring+Risk-Based+Adaptive+Authentication",
+  "helpLink": "https://is.docs.wso2.com/en/7.0.0/guides/authentication/conditional-auth/",
   "code": [
+    "// [Deprecated - Use ELK-Risk-Based with ELK analytics integration]",
+    "",
     "// Define conditional authentication by risk score value calculated from analytics engine.",
     "",
     "// Specify the Siddhi application name.",
@@ -57,5 +59,6 @@
     "        }",
     "    });",
     "};"
-  ]
+  ],
+  "runtime": "any"
 }
