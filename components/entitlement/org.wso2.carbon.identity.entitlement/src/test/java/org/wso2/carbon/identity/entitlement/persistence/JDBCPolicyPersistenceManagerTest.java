@@ -18,7 +18,6 @@
 
 package org.wso2.carbon.identity.entitlement.persistence;
 
-import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 import org.wso2.carbon.identity.common.testng.WithCarbonHome;
 import org.wso2.carbon.identity.common.testng.WithH2Database;
@@ -26,7 +25,8 @@ import org.wso2.carbon.identity.common.testng.WithRealmService;
 import org.wso2.carbon.identity.common.testng.WithRegistry;
 import org.wso2.carbon.identity.entitlement.internal.EntitlementConfigHolder;
 
-import static org.testng.Assert.assertEquals;
+import static org.testng.Assert.assertFalse;
+import static org.testng.Assert.assertNull;
 import static org.testng.Assert.assertTrue;
 
 /**
@@ -38,18 +38,28 @@ import static org.testng.Assert.assertTrue;
 @WithH2Database(files = {"dbscripts/h2.sql"})
 public class JDBCPolicyPersistenceManagerTest extends PolicyPersistenceManagerTest {
 
-    @BeforeMethod
-    public void setUp() throws Exception {
+    public PolicyPersistenceManager createPolicyPersistenceManager() {
 
-        policyPersistenceManager = new JDBCPolicyPersistenceManager();
+        return new JDBCPolicyPersistenceManager();
     }
 
     @Test
     public void testIsPolicyExistsInPap() throws Exception {
 
+        assertFalse(((JDBCPolicyPersistenceManager) policyPersistenceManager).isPolicyExistsInPap(null));
+        assertFalse(((JDBCPolicyPersistenceManager) policyPersistenceManager).isPolicyExistsInPap(" "));
+        assertFalse(((JDBCPolicyPersistenceManager) policyPersistenceManager).isPolicyExistsInPap(
+                samplePAPPolicy1.getPolicyId()));
+
         policyPersistenceManager.addOrUpdatePolicy(samplePAPPolicy1, true);
         assertTrue(((JDBCPolicyPersistenceManager) policyPersistenceManager).
                 isPolicyExistsInPap(samplePAPPolicy1.getPolicyId()));
-        policyPersistenceManager.removePolicy(samplePAPPolicy1.getPolicyId());
+    }
+
+    @Test(priority = 3)
+    public void testAddPAPPolicyNotFromPAP() throws Exception {
+
+        policyPersistenceManager.addOrUpdatePolicy(samplePAPPolicy1, false);
+        assertNull(policyPersistenceManager.getPAPPolicy(samplePAPPolicy1.getPolicyId()));
     }
 }

@@ -18,7 +18,6 @@
 
 package org.wso2.carbon.identity.entitlement.persistence;
 
-import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 import org.wso2.carbon.identity.common.testng.WithCarbonHome;
 import org.wso2.carbon.identity.common.testng.WithH2Database;
@@ -49,8 +48,7 @@ public class HybridPolicyPersistenceManagerTest extends PolicyPersistenceManager
     private JDBCPolicyPersistenceManager jdbcPolicyPersistenceManager;
     private RegistryPolicyPersistenceManager registryPolicyPersistenceManager;
 
-    @BeforeMethod
-    public void setUp() throws Exception {
+    public PolicyPersistenceManager createPolicyPersistenceManager() {
 
         Properties storeProps = new Properties();
         policyPersistenceManager = new HybridPolicyPersistenceManager();
@@ -58,6 +56,7 @@ public class HybridPolicyPersistenceManagerTest extends PolicyPersistenceManager
         jdbcPolicyPersistenceManager = new JDBCPolicyPersistenceManager();
         registryPolicyPersistenceManager = new RegistryPolicyPersistenceManager();
         registryPolicyPersistenceManager.init(storeProps);
+        return policyPersistenceManager;
     }
 
     @Test(priority = 13)
@@ -216,7 +215,7 @@ public class HybridPolicyPersistenceManagerTest extends PolicyPersistenceManager
     }
 
     @Test(priority = 22)
-    public void testDeletePDPPolicyInRegistry() throws Exception {
+    public void testDeletePDPPolicy() throws Exception {
 
         registryPolicyPersistenceManager.addOrUpdatePolicy(samplePAPPolicy1, true);
         registryPolicyPersistenceManager.addPolicy(samplePDPPolicy1);
@@ -322,7 +321,6 @@ public class HybridPolicyPersistenceManagerTest extends PolicyPersistenceManager
         assertEquals(orderedPolicyIdentifiers.length, 3);
         String[] orderedPolicyIdentifiersFromDb = jdbcPolicyPersistenceManager.getOrderedPolicyIdentifiers();
         assertEquals(orderedPolicyIdentifiersFromDb.length, 3);
-
 
         // Verify the number of active policies.
         String[] activePolicies = policyPersistenceManager.getActivePolicies();
