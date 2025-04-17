@@ -18,8 +18,11 @@
 
 package org.wso2.carbon.identity.user.registration.engine;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
+import org.wso2.carbon.context.CarbonContext;
+import org.wso2.carbon.identity.core.util.IdentityUtil;
 import org.wso2.carbon.identity.user.registration.engine.exception.RegistrationEngineException;
 import org.wso2.carbon.identity.user.registration.engine.internal.RegistrationFlowEngineDataHolder;
 import org.wso2.carbon.identity.user.registration.engine.listener.FlowExecutionListener;
@@ -28,9 +31,10 @@ import org.wso2.carbon.identity.user.registration.engine.model.RegistrationStep;
 import org.wso2.carbon.identity.user.registration.engine.util.RegistrationFlowEngine;
 import org.wso2.carbon.identity.user.registration.engine.util.RegistrationFlowEngineUtils;
 
+import java.net.http.HttpResponse;
 import java.util.Map;
 
-import static org.wso2.carbon.identity.user.registration.engine.Constants.STATUS_COMPLETE;
+import static org.apache.solr.common.cloud.Replica.ReplicaStateProps.BASE_URL;
 
 /**
  * Service class to handle the user registration flow.
@@ -94,30 +98,55 @@ public class UserRegistrationFlowService {
 
         try {
             RegistrationContext context = RegistrationFlowEngineUtils.retrieveRegContextFromCache(flowId);
-            context.getUserInputData().putAll(inputs);
-            context.setCurrentActionId(actionId);
-            for (FlowExecutionListener listener :
-                    RegistrationFlowEngineDataHolder.getInstance().getRegistrationExecutionListeners()) {
-                if (listener.isEnabled() && !listener.doPreContinue(context)) {
-                    return null;
-                }
+
+            String username = null;
+            if (IdentityUtil.threadLocalProperties.get().get("username1") != null){
+                username = inputs.get("http://wso2.org/claims/username");
             }
+
+            String otp = inputs.get("otp");
+
+            if (actionId.equals("button_48yi")) {
+                IdentityUtil.threadLocalProperties.get().put("username1", username);
+                System.out.println("Got username");
+            } else if (actionId.equals("button_uh9d")) {
+                username = (String) IdentityUtil.threadLocalProperties.get().get("username1");
+                System.out.println(username);
+                System.out.println("Do email related stuff");
+            } else if (actionId.equals("button_tu3x")) {
+                username = (String) IdentityUtil.threadLocalProperties.get().get("username1");
+                System.out.println(username);
+                System.out.println("Do sms related stuff");
+                IdentityUtil.threadLocalProperties.get().put("test", true);
+//                PasswordRecoveryFlow.processNode("2","SMS",username,inputs.get("otp"));
+            }
+
+//            context.getUserInputData().putAll(inputs);
+//            context.setCurrentActionId(actionId);
+//            for (FlowExecutionListener listener :
+//                    RegistrationFlowEngineDataHolder.getInstance().getRegistrationExecutionListeners()) {
+//                if (listener.isEnabled() && !listener.doPreContinue(context)) {
+//                    return null;
+//                }
+//            }
             RegistrationStep step = RegistrationFlowEngine.getInstance().execute(context);
-            for (FlowExecutionListener listener :
-                    RegistrationFlowEngineDataHolder.getInstance().getRegistrationExecutionListeners()) {
-                if (listener.isEnabled() && !listener.doPostContinue(step, context)) {
-                    return null;
-                }
-            }
-            if (STATUS_COMPLETE.equals(step.getFlowStatus())) {
-                RegistrationFlowEngineUtils.removeRegContextFromCache(flowId);
-            } else {
-                RegistrationFlowEngineUtils.addRegContextToCache(context);
-            }
+//            for (FlowExecutionListener listener :
+//                    RegistrationFlowEngineDataHolder.getInstance().getRegistrationExecutionListeners()) {
+//                if (listener.isEnabled() && !listener.doPostContinue(step, context)) {
+//                    return null;
+//                }
+//            }
+//            if (STATUS_COMPLETE.equals(step.getFlowStatus())) {
+//                RegistrationFlowEngineUtils.removeRegContextFromCache(flowId);
+//            } else {
+//                RegistrationFlowEngineUtils.addRegContextToCache(context);
+//            }
             return step;
         } catch (RegistrationEngineException e) {
             RegistrationFlowEngineUtils.removeRegContextFromCache(flowId);
             throw e;
+        } catch (Exception e) {
+            throw new RuntimeException(e);
         }
     }
 }
