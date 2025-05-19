@@ -122,6 +122,7 @@
         <module>features/system-config-mgt</module>
         <module>features/registration-framework</module>
         <module>features/async-operation-status-mgt</module>
+        <module>components/orchestration-framework</module>
     </modules>
 
 
