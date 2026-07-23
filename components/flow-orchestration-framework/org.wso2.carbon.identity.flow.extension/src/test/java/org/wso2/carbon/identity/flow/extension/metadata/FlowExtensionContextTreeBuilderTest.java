@@ -85,4 +85,21 @@ public class FlowExtensionContextTreeBuilderTest {
             assertFalse(leaf.isReplaceable(), key + " must not be replaceable.");
         }
     }
+
+    @Test
+    public void testClaimsNodeDegradesGracefullyWithoutClaimService() {
+
+        // With no ClaimMetadataManagementService wired (as in this unit context), the claims node
+        // must carry no enumerated children while still advertising free-text entry, so the meta
+        // API stays usable during early startup / when the claim service is unavailable.
+        FlowExtensionContextTreeNode claims = userLeaves.get("claims");
+        assertNotNull(claims, "/user/claims node must be present.");
+        assertEquals(claims.getNodeType(), ContextTree.NODE_MAP, "claims must be a MAP node.");
+        assertTrue(claims.getChildren().isEmpty(),
+                "claims must have no enumerated children when the claim service is unavailable.");
+        assertTrue(claims.isDynamicEntryAllowed(), "claims must keep free-text entry enabled.");
+        assertEquals(claims.getAllowedOperations(),
+                java.util.Arrays.asList(ContextTree.OP_EXPOSE, ContextTree.OP_MODIFY),
+                "claims must allow EXPOSE and MODIFY.");
+    }
 }

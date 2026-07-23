@@ -18,12 +18,21 @@
 
 package org.wso2.carbon.identity.flow.extension.metadata;
 
+import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
+import org.wso2.carbon.context.PrivilegedCarbonContext;
+import org.wso2.carbon.identity.claim.metadata.mgt.ClaimMetadataManagementService;
+import org.wso2.carbon.identity.claim.metadata.mgt.exception.ClaimMetadataException;
+import org.wso2.carbon.identity.claim.metadata.mgt.model.LocalClaim;
+import org.wso2.carbon.identity.claim.metadata.mgt.util.ClaimConstants;
 import org.wso2.carbon.identity.flow.extension.FlowExtensionConstants.ContextTree;
 import org.wso2.carbon.identity.flow.extension.FlowExtensionConstants.FlowContextPaths;
+import org.wso2.carbon.identity.flow.extension.internal.FlowExtensionDataHolder;
 
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.List;
 
 /**
@@ -32,6 +41,8 @@ import java.util.List;
  * receives the user/flow tree shape the Console UI expects.
  */
 public class FlowExtensionContextTreeBuilder {
+
+    private static final Log LOG = LogFactory.getLog(FlowExtensionContextTreeBuilder.class);
 
     /**
      * Build the metadata response for the given flow type.
@@ -111,7 +122,7 @@ public class FlowExtensionContextTreeBuilder {
                 .allowedOperations(Arrays.asList(ContextTree.OP_EXPOSE, ContextTree.OP_MODIFY))
                 .dynamicEntryAllowed(true)
                 .dynamicEntryType("String")
-                .children(Collections.emptyList())
+                .children(buildClaimChildren())
                 .build());
 
         List<FlowExtensionContextTreeNode> credentialsChildren = new ArrayList<>();
@@ -142,6 +153,90 @@ public class FlowExtensionContextTreeBuilder {
                 .nodeType(ContextTree.NODE_OBJECT)
                 .allowedOperations(Collections.singletonList(ContextTree.OP_EXPOSE))
                 .children(children)
+                .build();
+    }
+
+    /**
+     * Build the claims leaf nodes from the tenant's local claims.
+     *
+     * <p>Each claim becomes a {@code LEAF} addressed by the selector path
+     * {@code /user/claims[uri=<claimUri>]} — the same form the executor
+     * ({@code FlowExtensionRequestBuilder} / {@code FlowExtensionResponseProcessor}) resolves at
+     * runtime. EXPOSE is always allowed; MODIFY is added only for writable (non read-only) claims,
+     * leaving read-only claims to the {@code allowReadOnlyClaimsModification} gate.</p>
+     *
+     * <p>Degrades to an empty list — no enumerated claims, while free-text entry keeps working via
+     * {@code dynamicEntryAllowed} — when the claim service is unavailable or errors.</p>
+     */
+    private List<FlowExtensionContextTreeNode> buildClaimChildren() {
+
+        ClaimMetadataManagementService claimService =
+                FlowExtensionDataHolder.getInstance().getClaimMetadataManagementService();
+        if (claimService == null) {
+            return Collections.emptyList();
+        }
+        try {
+            String tenantDomain = PrivilegedCarbonContext.getThreadLocalCarbonContext().getTenantDomain();
+            List<LocalClaim> localClaims = claimService.getLocalClaims(tenantDomain);
+            if (localClaims == null) {
+                return Collections.emptyList();
+            }
+            List<FlowExtensionContextTreeNode> claimNodes = new ArrayList<>();
+            for (LocalClaim claim : selectExposableClaims(localClaims)) {
+                claimNodes.add(toClaimNode(claim));
+            }
+            claimNodes.sort(Comparator.comparing(FlowExtensionContextTreeNode::getTitle,
+                    String.CASE_INSENSITIVE_ORDER));
+            return claimNodes;
+        } catch (ClaimMetadataException e) {
+            LOG.error("Error while retrieving local claims for the Flow Extension context tree. "
+                    + "Serving the tree without enumerated claims.", e);
+            return Collections.emptyList();
+        }
+    }
+
+    /**
+     * Select which local claims are advertised under {@code /user/claims}.
+     *
+     * <p>TODO: restrict to the SCIM-level mutable claims. Until that logic lands, every local
+     * claim is returned so the enumeration mechanism is exercised end to end. This is the single
+     * seam for changing the claim set — {@link #buildClaimChildren()} handles node construction,
+     * ordering and error handling around it.</p>
+     *
+     * @param localClaims all local claims for the tenant.
+     * @return the subset of claims to expose in the context tree.
+     */
+    private List<LocalClaim> selectExposableClaims(List<LocalClaim> localClaims) {
+
+        // TODO: filter to SCIM-level mutable claims.
+        return localClaims;
+    }
+
+    /**
+     * Convert a single {@link LocalClaim} to its context-tree leaf node.
+     */
+    private FlowExtensionContextTreeNode toClaimNode(LocalClaim claim) {
+
+        String claimUri = claim.getClaimURI();
+        String displayName = claim.getClaimProperty(ClaimConstants.DISPLAY_NAME_PROPERTY);
+        boolean readOnly = Boolean.parseBoolean(claim.getClaimProperty(ClaimConstants.READ_ONLY_PROPERTY));
+        boolean multiValued = Boolean.parseBoolean(claim.getClaimProperty(ClaimConstants.MULTI_VALUED_PROPERTY));
+
+        List<String> allowedOperations = readOnly
+                ? Collections.singletonList(ContextTree.OP_EXPOSE)
+                : Arrays.asList(ContextTree.OP_EXPOSE, ContextTree.OP_MODIFY);
+
+        return FlowExtensionContextTreeNode.builder()
+                .key(claimUri)
+                .title(displayName != null && !displayName.trim().isEmpty() ? displayName : claimUri)
+                .path(FlowContextPaths.USER_CLAIMS_SELECTOR_PREFIX + claimUri
+                        + FlowContextPaths.USER_CLAIMS_SELECTOR_SUFFIX)
+                .dataType(ContextTree.DATA_TYPE_STRING)
+                .nodeType(ContextTree.NODE_LEAF)
+                .allowedOperations(allowedOperations)
+                .readOnly(readOnly)
+                .replaceable(false)
+                .multiValued(multiValued)
                 .build();
     }
 

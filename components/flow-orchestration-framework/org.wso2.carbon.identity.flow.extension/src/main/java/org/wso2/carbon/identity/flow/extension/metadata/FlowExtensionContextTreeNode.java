@@ -38,6 +38,7 @@ public class FlowExtensionContextTreeNode {
     private final boolean replaceable;
     private final boolean dynamicEntryAllowed;
     private final String dynamicEntryType;
+    private final boolean multiValued;
     private final List<FlowExtensionContextTreeNode> children;
 
     private FlowExtensionContextTreeNode(Builder b) {
@@ -53,6 +54,7 @@ public class FlowExtensionContextTreeNode {
         this.replaceable = b.replaceable;
         this.dynamicEntryAllowed = b.dynamicEntryAllowed;
         this.dynamicEntryType = b.dynamicEntryType;
+        this.multiValued = b.multiValued;
         this.children = b.children != null
                 ? Collections.unmodifiableList(b.children) : Collections.emptyList();
     }
@@ -107,6 +109,11 @@ public class FlowExtensionContextTreeNode {
         return dynamicEntryType;
     }
 
+    public boolean isMultiValued() {
+
+        return multiValued;
+    }
+
     public List<FlowExtensionContextTreeNode> getChildren() {
 
         return children;
@@ -129,6 +136,7 @@ public class FlowExtensionContextTreeNode {
         private boolean replaceable;
         private boolean dynamicEntryAllowed;
         private String dynamicEntryType;
+        private boolean multiValued;
         private List<FlowExtensionContextTreeNode> children;
 
         public Builder key(String v) {
@@ -188,6 +196,12 @@ public class FlowExtensionContextTreeNode {
         public Builder dynamicEntryType(String v) {
 
             this.dynamicEntryType = v;
+            return this;
+        }
+
+        public Builder multiValued(boolean v) {
+
+            this.multiValued = v;
             return this;
         }
 
