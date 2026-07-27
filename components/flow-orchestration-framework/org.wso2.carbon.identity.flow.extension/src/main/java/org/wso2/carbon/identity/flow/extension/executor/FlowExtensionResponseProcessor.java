@@ -109,7 +109,7 @@ public class FlowExtensionResponseProcessor implements ActionExecutionResponsePr
                     operation = decryptOperationValueIfNeeded(operation, accessConfig, tenantDomain);
                 }
                 results.add(processOperation(
-                        operation, pendingClaims, pendingCredentials, tenantDomain));
+                        operation, pendingClaims, pendingCredentials, tenantDomain, execCtx.getFlowType()));
             }
         } else {
             if (LOG.isDebugEnabled()) {
@@ -139,12 +139,13 @@ public class FlowExtensionResponseProcessor implements ActionExecutionResponsePr
      * @param pendingClaims       Accumulator map for user claim updates.
      * @param pendingCredentials  Accumulator map for user credential updates.
      * @param tenantDomain        Tenant domain, used for claim URI validation.
+     * @param flowType            The current flow type (e.g. {@code REGISTRATION}).
      * @return The result of the operation execution.
      */
     private OperationExecutionResult processOperation(PerformableOperation operation,
                                                       Map<String, Object> pendingClaims,
                                                       Map<String, char[]> pendingCredentials,
-                                                      String tenantDomain)
+                                                      String tenantDomain, String flowType)
             throws ActionExecutionResponseProcessorException {
 
         String path = operation.getPath();
@@ -161,6 +162,13 @@ public class FlowExtensionResponseProcessor implements ActionExecutionResponsePr
         if (AccessConfig.isReadOnly(path)) {
             return new OperationExecutionResult(operation, OperationExecutionResult.Status.FAILURE,
                     "Modifications are not allowed for the read-only paths" );
+        }
+
+        if (FlowExtensionConstants.FlowContextPaths.USER_USERNAME_PATH.equals(path)
+                && !FlowExtensionConstants.ContextTree.FLOW_REGISTRATION.equals(flowType)) {
+            return new OperationExecutionResult(operation, OperationExecutionResult.Status.SUCCESS,
+                    "Ignoring REPLACE on '" + path
+                            + "' for non self registration flow type: " + flowType);
         }
 
         if (path.startsWith(FlowExtensionConstants.FlowContextPaths.USER_CLAIMS_SELECTOR_PREFIX)) {

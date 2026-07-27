@@ -33,6 +33,7 @@ import org.wso2.carbon.identity.action.management.api.service.ActionDTOModelReso
 import org.wso2.carbon.identity.certificate.management.exception.CertificateMgtException;
 import org.wso2.carbon.identity.certificate.management.model.Certificate;
 import org.wso2.carbon.identity.certificate.management.service.CertificateManagementService;
+import org.wso2.carbon.identity.core.util.IdentityUtil;
 import org.wso2.carbon.identity.flow.extension.model.ContextPath;
 
 import java.io.IOException;
@@ -50,6 +51,7 @@ import static org.wso2.carbon.identity.flow.extension.FlowExtensionConstants.Act
 import static org.wso2.carbon.identity.flow.extension.FlowExtensionConstants.ActionManagement.CERTIFICATE_NAME_PREFIX;
 import static org.wso2.carbon.identity.flow.extension.FlowExtensionConstants.ActionManagement.ICON_URL;
 import static org.wso2.carbon.identity.flow.extension.FlowExtensionConstants.ActionManagement.MAX_EXPOSE_PATHS;
+import static org.wso2.carbon.identity.flow.extension.FlowExtensionConstants.ActionManagement.NON_MODIFIABLE_PATHS_PROPERTY;
 
 /**
  * ActionDTOModelResolver implementation for Flow Extension actions.
@@ -89,6 +91,7 @@ public class FlowExtensionActionDTOModelResolver implements ActionDTOModelResolv
         Object modifyValue = actionDTO.getPropertyValue(ACCESS_CONFIG_MODIFY);
         if (modifyValue != null) {
             List<ContextPath> validatedModify = validateAccessConfig(modifyValue);
+            validateModifyPaths(validatedModify);
             properties.put(ACCESS_CONFIG_MODIFY, createBlobProperty(validatedModify));
         }
 
@@ -206,7 +209,10 @@ public class FlowExtensionActionDTOModelResolver implements ActionDTOModelResolv
             throws ActionDTOModelResolverException {
 
         if (updatingActionDTO.getPropertyValue(ACCESS_CONFIG_MODIFY) != null) {
-            return validateAccessConfig(updatingActionDTO.getPropertyValue(ACCESS_CONFIG_MODIFY));
+            List<ContextPath> validatedModify =
+                    validateAccessConfig(updatingActionDTO.getPropertyValue(ACCESS_CONFIG_MODIFY));
+            validateModifyPaths(validatedModify);
+            return validatedModify;
         } else if (existingActionDTO.getPropertyValue(ACCESS_CONFIG_MODIFY) != null) {
             return (List<ContextPath>) existingActionDTO.getPropertyValue(ACCESS_CONFIG_MODIFY);
         }
@@ -244,6 +250,21 @@ public class FlowExtensionActionDTOModelResolver implements ActionDTOModelResolv
 
         validateContextPathFormat(result);
         return result;
+    }
+
+    private void validateModifyPaths(List<ContextPath> modify) throws ActionDTOModelResolverClientException {
+
+        List<String> nonModifiablePaths = IdentityUtil.getPropertyAsList(NON_MODIFIABLE_PATHS_PROPERTY);
+        if (nonModifiablePaths.isEmpty()) {
+            return;
+        }
+
+        for (ContextPath modifyPath : modify) {
+            if (nonModifiablePaths.contains(modifyPath.getPath())) {
+                throw new ActionDTOModelResolverClientException("Invalid modify path.",
+                        String.format("Path '%s' cannot be marked as modifiable.", modifyPath.getPath()));
+            }
+        }
     }
 
     private void validateContextPathFormat(List<ContextPath> expose) throws ActionDTOModelResolverClientException {
